@@ -1,0 +1,180 @@
+{
+  "basic": {
+    "description": "权限与主人",
+    "type": "object",
+    "hint": "",
+    "items": {
+      "owner_session": {
+        "description": "主人的私聊会话",
+        "type": "string",
+        "hint": "形如 机器人名:FriendMessage:主人QQ号。只有这个会话里或管理员发的消息，她才会用 LLM 工具操作 QQ",
+        "default": ""
+      },
+      "extra_admins": {
+        "description": "额外允许的 QQ 号",
+        "type": "list",
+        "hint": "私聊里管理员判断不生效，把自己和需要放行的人的 QQ 填进来",
+        "default": []
+      },
+      "admin_only": {
+        "description": "斜杠指令仅管理员可用",
+        "type": "bool",
+        "hint": "只影响 / 开头的指令，LLM 工具走 owner_session 和 extra_admins 判断",
+        "default": true
+      }
+    }
+  },
+  "signature": {
+    "description": "个性签名",
+    "type": "object",
+    "hint": "",
+    "items": {
+      "daily_self_limit": {
+        "description": "她一天最多自己改几次签名",
+        "type": "int",
+        "hint": "主人叫她改的不算在里面",
+        "default": 2
+      },
+      "daily_owner_limit": {
+        "description": "主人叫她改签名，一天最多几次",
+        "type": "int",
+        "default": 10
+      },
+      "max_length": {
+        "description": "签名最多几个字",
+        "type": "int",
+        "default": 40
+      },
+      "self_change_hint": {
+        "description": "主人夸她、凶她、说生日时，提醒她顺手改签名",
+        "type": "bool",
+        "hint": "不开的话，她自己改签名全靠人设，很少主动改",
+        "default": true
+      }
+    }
+  },
+  "feed": {
+    "description": "说说与空间",
+    "type": "object",
+    "hint": "",
+    "items": {
+      "self_feed_hint": {
+        "description": "主人夸她、凶她、说生日时，偶尔提醒她可以自己发条说说",
+        "type": "bool",
+        "hint": "不开的话，说说只会在主人明确要求时发",
+        "default": true
+      },
+      "feed_hint_chance": {
+        "description": "触发说说提醒的概率",
+        "type": "float",
+        "hint": "0-1，默认 0.25，即四次情绪触发大概有一次会提示她发说说",
+        "default": 0.25
+      },
+      "daily_feed_limit": {
+        "description": "一天最多发几条说说",
+        "type": "int",
+        "default": 2
+      },
+      "max_list": {
+        "description": "说说列表默认显示条数（上限 20）",
+        "type": "int",
+        "default": 10
+      },
+      "max_images": {
+        "description": "一条说说最多附几张图",
+        "type": "int",
+        "hint": "上限 9 张，0 表示不允许附图",
+        "default": 9
+      }
+    }
+  },
+  "llm": {
+    "description": "AI 写说说",
+    "type": "object",
+    "hint": "主人说「你自己写一条说说」或使用 /ai说说 时，用这里配置的模型和提示词生成正文",
+    "items": {
+      "post_provider_id": {
+        "description": "写说说用的 LLM 提供商",
+        "type": "string",
+        "hint": "留空或填写的提供商不存在时，使用当前会话正在用的 LLM 提供商",
+        "default": "",
+        "_special": "select_provider"
+      },
+      "post_prompt": {
+        "description": "写说说用的提示词",
+        "type": "text",
+        "hint": "建议按 Bot 的人格改写，比如指定语气、长度、要不要带表情",
+        "default": "写一条你此刻的 QQ 空间说说，用你自己的口吻，40 字以内，可以带一点情绪、吐槽或感慨。"
+      }
+    }
+  },
+  "card": {
+    "description": "名片赞",
+    "type": "object",
+    "hint": "",
+    "items": {
+      "like_times": {
+        "description": "名片赞默认点赞次数（上限 20）",
+        "type": "int",
+        "default": 10
+      },
+      "daily_card_like_limit": {
+        "description": "每天名片赞上限",
+        "type": "int",
+        "default": 30
+      }
+    }
+  },
+  "risk": {
+    "description": "风控与频率",
+    "type": "object",
+    "hint": "空间有风控，新号或高频操作容易被限，拿不准就调低",
+    "items": {
+      "cooldown_seconds": {
+        "description": "写操作全局冷却（秒）",
+        "type": "int",
+        "hint": "发说说、点赞、评论、回复、删除、名片赞之间至少间隔多少秒，0 为不限制",
+        "default": 15
+      },
+      "daily_like_limit": {
+        "description": "每天说说点赞上限",
+        "type": "int",
+        "default": 20
+      },
+      "daily_comment_limit": {
+        "description": "每天评论+回复上限",
+        "type": "int",
+        "default": 10
+      },
+      "daily_delete_limit": {
+        "description": "每天删除说说上限",
+        "type": "int",
+        "default": 5
+      }
+    }
+  },
+  "network": {
+    "description": "空间连接",
+    "type": "object",
+    "hint": "",
+    "items": {
+      "qzone_domain": {
+        "description": "获取 Cookie 的域名",
+        "type": "string",
+        "hint": "默认 user.qzone.qq.com，失败时会自动回退 qzone.qq.com",
+        "default": "user.qzone.qq.com"
+      },
+      "cookie_ttl": {
+        "description": "空间 Cookie 缓存秒数",
+        "type": "int",
+        "hint": "缓存 uin/skey/p_skey，到期后重新获取；0 表示每次请求都重新取",
+        "default": 600
+      },
+      "timeout": {
+        "description": "空间接口超时（秒）",
+        "type": "int",
+        "default": 20
+      }
+    }
+  }
+}
