@@ -67,7 +67,7 @@ API_COMMENT = (
     "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
 )
 API_REPLY = (
-    "https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
+    "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
 )
 API_LIST = (
     "https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msglist_v6"
@@ -166,6 +166,8 @@ def parse_json(text: str) -> dict:
     text = (text or "").strip()
     if not text:
         raise RuntimeError("空间接口返回内容为空")
+    if "data error" in text[:200].lower():
+        raise RuntimeError("空间接口返回 data error：登录态或 g_tk 可能失效")
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end <= start:
         raise RuntimeError(f"空间接口返回内容异常：{text[:120]}")
@@ -178,7 +180,8 @@ def parse_json(text: str) -> dict:
 
             data = json5.loads(payload)
         except Exception as exc:
-            raise RuntimeError(f"空间接口 JSON 解析失败：{exc}") from exc
+            snippet = re.sub(r"\s+", " ", text)[:160]
+            raise RuntimeError(f"空间接口返回的不是 JSON：{snippet}") from exc
     if not isinstance(data, dict):
         raise RuntimeError("空间接口返回的不是对象")
     return data
@@ -868,13 +871,6 @@ class QQToolboxPlugin(Star):
                 "private": "0",
                 "paramstr": "2",
                 "qzreferrer": f"{BASE_URL}/{sess.uin}/main",
-            },
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                "User-Agent": UA,
-                "Referer": f"{BASE_URL}/",
-                "Origin": BASE_URL,
-                "Host": "h5.qzone.qq.com",
             },
         )
         return self._check(payload, "回复评论")
