@@ -2,7 +2,7 @@ name: astrbot_plugin_qq_toolbox
 display_name: 大肥鱼 QQ 工具箱
 desc: 改昵称、改签名、发说说、点赞评论删说说、名片赞；支持 AI 自己写说说，LLM 工具 + 指令双通道
 help: 直接用大白话说「把昵称改成……」「你自己写条说说」「给那条说说点个赞」，或使用 /qq帮助 查看指令
-version: 1.6.2
+version: 1.6.3
 author: 半城
 repo: https://github.com/BanCheng97/astrbot_plugin_qq_toolbox
 support_platforms:

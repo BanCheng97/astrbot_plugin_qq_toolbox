@@ -1,5 +1,10 @@
 # 更新记录
 
+## 1.6.3
+
+- 修复回复评论返回空间校验页（`document.domain` 脚本）：`format` 改为 `json`，`qzreferrer` 与评论接口保持一致
+- 回复评论不再走 `format=fs` 的 iframe 桥页格式，拿到的是可直接解析的 JSON
+
 ## 1.6.2
 
 - 修复回复评论报「JSON 解析失败」：`emotion_cgi_re_feeds` 改用 `user.qzone.qq.com` 域名，与评论接口保持一致

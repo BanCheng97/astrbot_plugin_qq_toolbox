@@ -861,7 +861,7 @@ class QQToolboxPlugin(Star):
                 "plat": "qzone",
                 "source": "ic",
                 "platformid": "52",
-                "format": "fs",
+                "format": "json",
                 "ref": "feeds",
                 "content": content,
                 "commentId": str(comment.get("tid") or ""),
@@ -870,7 +870,7 @@ class QQToolboxPlugin(Star):
                 "richtype": "",
                 "private": "0",
                 "paramstr": "2",
-                "qzreferrer": f"{BASE_URL}/{sess.uin}/main",
+                "qzreferrer": f"{BASE_URL}/{sess.uin}",
             },
         )
         return self._check(payload, "回复评论")
