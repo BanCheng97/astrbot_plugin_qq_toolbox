@@ -4,7 +4,7 @@
 
 **告状 · 用量 · 语音 · QQ 工具箱 · 长期记忆**，一个插件 + 一个可视化控制台
 
-`AstrBot 4.29.3 实测` · `aiocqhttp（NapCat / LLOneBot）` · `v2.2.3` · `MIT`
+`AstrBot 4.29.3 实测` · `aiocqhttp（NapCat / LLOneBot）` · `v2.2.4` · `MIT`
 
 </div>
 

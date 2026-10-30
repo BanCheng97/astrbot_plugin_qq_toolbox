@@ -1,5 +1,12 @@
 # 更新日志
 
+## 2.2.4（2026-10-30）
+
+### 修复（插件市场自动审核）
+
+- `modules/voice.py` 的 `voice_state.json` 不再写进插件包内的 `modules/data/`，改为 `StarTools.get_data_dir()` 规定的 `data/plugin_data/<插件名>/`，符合审核要求
+- 首次加载时自动把旧的 `modules/data/voice_state.json` 迁移到新位置，已设置的 Breeze 音色不会丢
+
 ## 2.2.3（2026-10-30）
 
 ### 新增

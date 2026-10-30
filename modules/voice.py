@@ -37,9 +37,30 @@ NAME = "astrbot_plugin_dafeiyu_voice"
 class VoiceMixin(SuiteBase):
     def setup_voice(self) -> None:
         self._voice_lock = asyncio.Lock()
-        self._voice_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        # 状态文件放到 AstrBot 规定的插件数据目录，避免写进插件包内（升级会被覆盖，也不便审计）
+        legacy_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        try:
+            self._voice_data_dir = self.module_data_dir(NAME)
+        except Exception as exc:
+            logger.warning(f"[voice] 获取数据目录失败，改用插件内目录: {exc}")
+            self._voice_data_dir = legacy_dir
         os.makedirs(self._voice_data_dir, exist_ok=True)
         self._voice_state_path = os.path.join(self._voice_data_dir, "voice_state.json")
+        # 旧版本写在 modules/data/voice_state.json，首次启动自动搬过来
+        legacy_state = os.path.join(legacy_dir, "voice_state.json")
+        if (
+            os.path.isfile(legacy_state)
+            and not os.path.isfile(self._voice_state_path)
+            and os.path.abspath(legacy_state) != os.path.abspath(self._voice_state_path)
+        ):
+            try:
+                with open(legacy_state, "r", encoding="utf-8") as src:
+                    content = src.read()
+                with open(self._voice_state_path, "w", encoding="utf-8") as dst:
+                    dst.write(content)
+                logger.info(f"[voice] 已把旧状态文件迁移到 {self._voice_state_path}")
+            except Exception as exc:
+                logger.warning(f"[voice] 迁移旧状态文件失败: {exc}")
         self._voice_state = self._voice_load_state()
 
     # ---------------- 配置读取 -----------------------------
