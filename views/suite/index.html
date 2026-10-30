@@ -466,7 +466,7 @@ async function loadStatus() {
 
 function demoStatus() {
   return {
-    plugin: { version: "2.0.0", handlers: { total: 42 }, llm_tools: { total: 15 }, platforms: ["aiocqhttp"] },
+    plugin: { version: "2.1.0", handlers: { total: 42 }, llm_tools: { total: 15 }, platforms: ["aiocqhttp"] },
     complain: { enabled: true, owner_configured: false, guardians: 2, today: 3, today_relay: 1, records: 9, cooldown: 600, daily_limit: 5 },
     usage: { enabled: true, api_key_configured: false, alert_enabled: true, alert_threshold: 5, check_interval_hours: 6, task_running: false },
     voice: { listen_enabled: true, speak_enabled: true, sing_enabled: true, backend: "breeze", speak_prob_percent: 10 },

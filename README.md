@@ -11,7 +11,7 @@
 
 - 插件标识名：`astrbot_plugin_dafeiyu_toolbox`
 - 兼容别名（Web API 三前缀均已注册）：`astrbot_plugin_dafeiyu_suite`、`astrbot_plugin_qq_toolbox`
-- 版本：2.0.0 ｜ 平台：aiocqhttp（NapCat / LLOneBot） ｜ 已在 AstrBot 4.29.3 实测
+- 版本：2.1.0 ｜ 平台：aiocqhttp（NapCat / LLOneBot） ｜ 已在 AstrBot 4.29.3 实测
 
 ## 代码结构
 
@@ -136,7 +136,7 @@ astrbot_plugin_qq_toolbox_config.json
 需要 AstrBot 4.x 的 Plugin Views 与 `context.register_web_api`，并且要从插件详情页打开视图，不要在浏览器里单独打开 `index.html`。旧版 AstrBot 会在日志提示「可视化视图不可用」，聊天指令与 LLM 工具不受影响。
 
 **说「换头像」时她说 NapCat 不支持？**
-请确认插件已更新到 2.0.0 且已重载；`qq_change_avatar` 工具依赖 NapCat 的 `set_qq_avatar`，NapCat / LLOneBot 需要在线且已登录。也可以改用 `/改头像` 指令排除模型因素。
+请确认插件已更新到 2.1.0 且已重载；`qq_change_avatar` 工具依赖 NapCat 的 `set_qq_avatar`，NapCat / LLOneBot 需要在线且已登录。也可以改用 `/改头像` 指令排除模型因素。
 
 **空间操作报登录失效？**
 确认 NapCat / LLOneBot 在线且已登录；插件会自动重取 Cookie 并重试两次。

@@ -59,7 +59,7 @@ from .modules.base import MISSING, flatten_dict, nested_get, nested_set, to_bool
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
 ALIAS_NAMES = ("astrbot_plugin_dafeiyu_suite", "astrbot_plugin_qq_toolbox")
-SUITE_VERSION = "2.0.0"
+SUITE_VERSION = "2.1.0"
 
 PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_PATH = os.path.join(PLUGIN_ROOT, "_conf_schema.json")
