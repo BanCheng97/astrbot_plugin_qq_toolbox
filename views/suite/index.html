@@ -257,6 +257,7 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
       <div class="row">
         <button class="primary" id="btn-mem-add">添加记忆</button>
         <button id="btn-mem-refresh">刷新列表</button>
+        <button id="btn-mem-export">导出 JSON</button>
         <button id="btn-mem-clear">清空所有人记忆</button>
       </div>
       <div class="list" id="mem-list"></div>
@@ -489,7 +490,7 @@ async function loadStatus() {
 
 function demoStatus() {
   return {
-    plugin: { version: "2.2.1", handlers: { total: 53 }, llm_tools: { total: 18 }, platforms: ["aiocqhttp"] },
+    plugin: { version: "2.2.2", handlers: { total: 53 }, llm_tools: { total: 18 }, platforms: ["aiocqhttp"] },
     complain: { enabled: true, owner_configured: false, guardians: 2, today: 3, today_relay: 1, records: 9, cooldown: 600, daily_limit: 5 },
     usage: { enabled: true, api_key_configured: false, alert_enabled: true, alert_threshold: 5, check_interval_hours: 6, task_running: false },
     voice: { listen_enabled: true, speak_enabled: true, sing_enabled: true, backend: "breeze", speak_prob_percent: 10 },
@@ -917,6 +918,27 @@ function bindActions() {
     await loadStatus();
   }, "已添加一条记忆"));
   $("btn-mem-refresh").addEventListener("click", () => run($("btn-mem-refresh"), loadMemory));
+  $("btn-mem-export").addEventListener("click", () => run($("btn-mem-export"), async () => {
+    const data = await get("memory");
+    const payload = {
+      exported_at: new Date().toISOString(),
+      path: data.path || "",
+      stats: data.stats || {},
+      users: data.users || [],
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `memory-${stamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const total = (data.users || []).reduce((n, u) => n + (u.facts || []).length, 0);
+    toast(`已导出 ${total} 条记忆`, "ok");
+  }));
   $("btn-mem-clear").addEventListener("click", () => run($("btn-mem-clear"), async () => {
     if (!confirm("确定清空所有人的记忆吗？")) return null;
     await post("memory/clear", {});
