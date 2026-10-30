@@ -1,4 +1,9 @@
 __pycache__/
 *.py[cod]
-history.json
 .venv/
+data/
+complaints.json
+usage.json
+history.json
+*.silk
+*.wav

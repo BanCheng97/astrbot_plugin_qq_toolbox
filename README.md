@@ -1,212 +1,138 @@
-# 大肥鱼 QQ 工具箱
+# 大肥鱼 QQ 工具箱（合集）
 
-（插件标识名：`astrbot_plugin_qq_toolbox`）
+把原来四个独立插件合并成一个 AstrBot 插件，并附带一个统一的可视化控制台：
 
-给 AstrBot 用的 QQ 操作插件：改头像、改昵称、改个性签名、名片赞，以及 QQ 空间说说的发布（可附图）、AI 自动写说说、列表、点赞、评论、回复评论、删除。
-
-两条通道：
-
-- **LLM 工具通道（主路径）**：把操作做成 function calling 工具，主人用大白话说「把签名改成……」「发条说说」「给第一条说说点个赞」，模型自己判断并调用。工具返回的是「人格化提示语」，由模型用自己的口吻回话，所以对话里没有人机感。
-- **斜杠指令通道（兜底）**：不便开口或模型没调工具时，直接敲指令。
-
-> 依赖 **NapCat / LLOneBot** 等支持扩展 API 的 OneBot v11 实现（AstrBot 的 `aiocqhttp` 适配器）。
-> 说说相关功能还需要协议端支持 `get_cookies` / `get_credentials`；Lagrange 等实现不满足。
-
-空间层参考 [Zhalslar/astrbot_plugin_qzone](https://github.com/Zhalslar/astrbot_plugin_qzone) 的实现做了对齐：
-
-- Cookie 上下文缓存（`uin` / `skey` / `p_skey`），按 `cookie_ttl` 自动刷新，多请求串行加锁
-- 登录态失效（HTTP 401 / `-3000` / 图片 `-100`）自动重新取 Cookie 并重试，最多两次
-- JSONP / 非标准 JSON 响应解析（内置 `json5` 可选兜底）
-- 发说说支持附图：`cgi_upload_image` 上传后拼 `pic_bo` + `richval`
-- 删除、回复评论走 `h5.qzone.qq.com` 代理，评论 / 列表走对应 `taotao` 代理
-
-## 支持平台
-
-`metadata.yaml` 里已声明 `support_platforms: [aiocqhttp]`。
-
-| 平台 | 状态 | 说明 |
+| 模块 | 原插件 | 主要能力 |
 | --- | --- | --- |
-| aiocqhttp（NapCat / LLOneBot） | 完整支持 | 头像、昵称、签名、名片赞、说说全部可用 |
-| 其他 OneBot v11 实现 | 部分支持 | 头像/签名/名片赞走标准 action，说说因拿不到空间 Cookie 不可用 |
-| Telegram / 飞书 / QQ 官方机器人等 | 不支持 | 没有 OneBot action，也没有 QQ 空间 Cookie |
+| 告状 | `astrbot_plugin_dafeiyu_complain` | 被欺负时私聊家人告状、家人互相告状、让机器人传话 |
+| 用量 | `astrbot_plugin_dafeiyu_usage` | 查 DeepSeek 余额、今日/近 7 天消耗、token 估算、低余额撒娇提醒 |
+| 语音 | `astrbot_plugin_dafeiyu_voice` | 语音识别（STT）、语音合成（TTS）、概率自动触发、歌唱模式 |
+| QQ 工具箱 | `astrbot_plugin_qq_toolbox` | 改头像/昵称/签名、名片赞、发说说、AI 写说说、点赞/评论/回复/删除说说 |
 
-在非 aiocqhttp 平台触发时，插件会直接回一句「仅支持 aiocqhttp 适配器」，不会抛异常影响 AstrBot 运行。
+插件标识名：`astrbot_plugin_qq_toolbox`（目录名 `astrbot_plugin_dafeiyu_suite` 也可以，Web API 双前缀已兼容）。
 
-## LLM 工具
+## 代码结构
 
-| 工具名 | 作用 | 谁可触发 |
-| --- | --- | --- |
-| `qq_set_nickname` | 改 QQ 昵称 | 主人 |
-| `qq_set_signature` | 改个性签名，主人叫改或她心情变了自己改 | 主人 |
-| `qq_post_feed` | 发一条说说，可带图 | 主人 |
-| `qq_ai_post_feed` | 让她用模型自己想内容写一条说说，可给主题 | 主人 |
-| `qq_list_feeds` | 看最近几条说说（给后续操作找序号） | 主人 |
-| `qq_like_feed` | 给某条说说点赞 | 主人 |
-| `qq_comment_feed` | 评论某条说说 | 主人 |
-| `qq_reply_comment` | 回复某条评论 | 主人 |
-| `qq_delete_feed` | 删除某条说说 | 主人 |
-| `qq_like_card` | 给指定 QQ 名片点赞 | 主人 |
+```
+astrbot_plugin_dafeiyu_suite/
+├── main.py                  # 唯一入口类 DafeiyuSuitePlugin + Web API + Handler 归位
+├── modules/
+│   ├── base.py              # 四个模块共用：配置查找、数据目录、JSON、OneBot 客户端
+│   ├── complain.py          # 告状 Mixin
+│   ├── usage.py             # 用量 Mixin
+│   ├── voice.py             # 语音 Mixin
+│   └── toolbox.py           # QQ 工具箱 Mixin
+├── views/suite/index.html   # 可视化控制台（Plugin Views）
+├── _conf_schema.json        # 四命名空间配置（complain / usage / voice / toolbox）
+└── .astrbot-plugin/i18n/    # 视图标题与说明
+```
 
-「主人」判定：`owner_session` 指定的会话、`extra_admins` 里的 QQ 号，或 AstrBot 管理员。
-
-### 让她自己改签名
-
-仅靠人设，模型很少主动调用签名工具。开启 `self_change_hint` 后，主人话里出现夸奖、凶她、说生日这类词时，插件会在**本轮系统提示**里补一句提醒，让她顺手改签名（这段提示不落进对话，用户看不到）。当天自己改的次数用完就不再提醒。
-
-签名、说说都会写进插件数据目录的 `history.json`，用于每日配额和重复内容去重。
-
-### 她会不会自己发说说
-
-会，但受控。开启 `self_feed_hint` 后，同样是在主人夸奖 / 凶她 / 说生日时，按 `feed_hint_chance`（默认 0.25）的概率补一句「这次想发就顺手发条说说」，让她自己决定发不发。所以是偶发的、带情绪的，不会到点就冒一条。
-
-不发的情况：`self_feed_hint` 关掉、当天说说配额（`daily_feed_limit`）用完、主人话里已经在说「说说」、或者这次概率没命中。
-
-### 让她自己写说说（AI 生成）
-
-和上一条不同：这里正文不是模型在聊天里顺手写的，而是**单独调一次 LLM 生成**再发布，所以提示词、模型都可以单独指定。
-
-- 聊天里：主人说「你自己写一条说说」「随便发点什么」「按这个主题发一条」，模型会调用 `qq_ai_post_feed`
-- 指令：「`/ai说说`」或「`/写说说`」，后面可以跟主题，例如 `/ai说说 今天下雨`
-
-生成用的模型和提示词在配置页的「AI 写说说」分组里：`post_provider_id`（留空则用当前会话的提供商）、`post_prompt`（建议按人格改写）。生成结果会去掉代码块、引号和「说说：」之类前缀，再交给正常的发说说流程，所以冷却、每日上限、去重一样生效。
-
-## 斜杠指令
-
-| 指令 | 说明 |
-| --- | --- |
-| `/改头像` | 发送图片时附带该指令，修改机器人头像 |
-| `/改昵称 昵称` | 修改 QQ 昵称 |
-| `/改签名 内容` | 修改个性签名 |
-| `/名片赞 @某人 10` | 名片点赞，次数可省略 |
-| `/发说说 内容` | 发布说说，可同时附图片 |
-| `/ai说说 主题` | 用模型自己写一条说说并发布，主题可省略；也可用 `/写说说` |
-| `/说说列表 10` | 拉取最近说说并缓存序号（附前几条评论的序号） |
-| `/赞说说 1` | 给说说点赞 |
-| `/评说说 1 内容` | 评论说说，也可用 `/评论说说`、`/回复说说` |
-| `/回复评论 1 2 内容` | 回复第 1 条说说下的第 2 条评论 |
-| `/删说说 1` | 删除说说 |
-| `/qq帮助` | 查看指令 |
-
-序号来自 `/说说列表`，也可以直接填说说 tid。
+- **一个入口类 + 四个 Mixin**：AstrBot 只认一个入口类，业务按模块拆分，方法名全部加模块前缀，多继承不会静默覆盖。
+- **公共依赖收拢**：配置读取、数据目录、JSON 读写、数值转换、OneBot 客户端统一在 `modules/base.py`。
+- **配置隔离**：四个模块各自一个命名空间，`owner_session`、`max_length`、`enabled` 这类同名键不会串味。
+- **Handler 归位**：AstrBot 只给 main.py 模块路径下的 Handler 绑定实例并分发事件，插件启动时会把子模块的 Handler 与 LLM 工具重新挂回 main 路径，保证指令、工具、监听都照常生效。
 
 ## 安装
 
-1. 把 `astrbot_plugin_qq_toolbox` 整个文件夹放进 AstrBot 的 `data/plugins/`。
-2. WebUI 里重载插件或重启 AstrBot。
-3. 在 AstrBot 里启用「函数调用工具 / Function Calling」，LLM 工具通道才会生效。
-4. 依赖 `aiohttp`（AstrBot 环境通常自带），缺失时 `pip install aiohttp`。
+1. 把整个 `astrbot_plugin_dafeiyu_suite` 文件夹放进 AstrBot 的 `data/plugins/`。
+2. 安装依赖：`pip install -r requirements.txt`（AstrBot 通常会自动装）。
+3. 重载插件。
+4. 在插件配置页或可视化控制台里填写需要的 Key / 主人 QQ / 家人名单。
 
-## 配置项
+依赖说明：
 
-配置页按用途分成 7 组，从上到下依次是：
+- `aiohttp`：QQ 空间接口
+- `httpx`：DeepSeek 余额与语音接口
+- `edge-tts`：保留的原语音依赖
+- `audioop-lts`：Python 3.13+ 的 `audioop` 替代（Python 3.12 及以下不需要）
+- `pysilk`（可选）：WAV → Silk 转码，装不上时会自动回退到适配器发送
 
-**权限与主人**
+## 可视化控制台
 
-| 配置 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `owner_session` | string | 空 | 主人的私聊会话，形如 `机器人名:FriendMessage:QQ号` |
-| `extra_admins` | list | [] | 额外放行的 QQ 号；私聊建议填自己 |
-| `admin_only` | bool | true | 只影响斜杠指令的权限 |
+插件加载后打开 AstrBot 的插件视图页「大肥鱼合集控制台」，或直接访问：
 
-**个性签名**
+```
+/{PLUGIN_NAME}/suite
+```
 
-| 配置 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `daily_self_limit` | int | 2 | 她一天最多自己改几次签名 |
-| `daily_owner_limit` | int | 10 | 主人叫她改，一天最多几次 |
-| `max_length` | int | 40 | 签名最大长度 |
-| `self_change_hint` | bool | true | 情绪词触发「顺手改签名」提示 |
+页面包含六个页签：
 
-**说说与空间**
+- **总览**：插件版本、已注册 Handler / LLM 工具数量、平台、四个模块的启用状态与今日计数
+- **告状**：预览告状文案（不发消息）、手动告状、传话、查看最近记录
+- **用量**：一键查余额与消耗报告、手动触发低余额检查
+- **语音**：输入文本合成语音并试听（说 / 唱）、上传音频转文字
+- **QQ 工具箱**：测试空间连接、改昵称/签名/头像、发说说、AI 预览、说说列表、点赞/评论/回复/删除、名片赞
+- **记录**：告状记录与 QQ 操作记录
 
-| 配置 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `self_feed_hint` | bool | true | 情绪词触发「可以自己发条说说」提示 |
-| `feed_hint_chance` | float | 0.25 | 说说提醒的触发概率 |
-| `daily_feed_limit` | int | 2 | 一天最多发几条说说 |
-| `max_list` | int | 10 | 说说列表默认条数（1-20） |
-| `max_images` | int | 9 | 一条说说最多附图张数（上限 9，0 为禁用） |
+配置页签按 `_conf_schema.json` 自动生成表单，支持分组折叠、开关、下拉、滑块、列表与密钥字段；密钥保存后只显示「已配置」，留空不会覆盖原值。
 
-**AI 写说说**
+页面上的动作调用与聊天里的工具调用走同一套方法，因此频控、冷却、每日上限、历史记录行为完全一致。
 
-| 配置 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `post_provider_id` | string | 空 | 写说说用的 LLM 提供商，留空用当前会话的 |
-| `post_prompt` | text | 见页面 | 写说说的提示词，建议按人格改写 |
+## 模块说明
 
-**名片赞**
+### 告状
 
-| 配置 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `like_times` | int | 10 | 名片赞默认次数（1-20） |
-| `daily_card_like_limit` | int | 30 | 每天名片赞上限 |
+- 模型判断被骂/被欺负时调用 `qq_complain`，插件私聊发告诉家人；管理员也可 `/告状 内容` 手动触发。
+- 欺负者在 `guardians` 名单里 → 发给名单里的其他人；名单外 → 发给 `owner_umo` / `owner_qq`。
+- 同一人冷却、每天总上限、群聊附带群号、重复欺负升级提示均可配置。
+- 家人可让机器人传话（`qq_relay_message`），有独立冷却与每日上限。
 
-**风控与频率**
+### 用量
 
-| 配置 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `cooldown_seconds` | int | 15 | 写操作全局冷却秒数，0 为不限制 |
-| `daily_like_limit` | int | 20 | 每天说说点赞上限 |
-| `daily_comment_limit` | int | 10 | 每天评论 + 回复上限 |
-| `daily_delete_limit` | int | 5 | 每天删除说说上限 |
+- LLM 工具 `deepseek_money`，指令 `/用量`、`/余额`、`/用量帮助`（默认仅管理员）。
+- DeepSeek 只提供余额接口，消耗按余额快照推算，token 数按单价换算。
+- 低余额时私聊主人，同一天最多一次；可按人格用模型写提醒。
+- 定时检查任务在 `initialize` 启动、`terminate` 停止。
 
-**空间连接**
+### 语音
 
-| 配置 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `qzone_domain` | string | user.qzone.qq.com | 获取 Cookie 的域名，失败自动回退 qzone.qq.com |
-| `cookie_ttl` | int | 600 | Cookie 缓存秒数，0 表示每次都重新取 |
-| `timeout` | int | 20 | 空间接口超时秒数 |
+- 收到的语音自动转录（MiMo ASR），转录结果注入给模型。
+- 回复可按概率自动合成语音；`/说 文本` 手动合成，`/唱 歌词` 歌唱模式。
+- TTS 后端可选 BreezeBlue 或 MiMo，支持语气指令、音色选择；WAV 会转 Silk 后由 OneBot 发送。
+- `/听到` 可让机器人听当前会话最近一条语音。
 
-## 接口说明
+### QQ 工具箱
 
-- 签名：`set_self_longnick`（`longNick`），失败时回退 `set_qq_profile`（`personal_note`）
-- 头像：`set_qq_avatar`
-- 名片赞：`send_like`
-- 空间：`get_cookies` 取 Cookie 后请求，`uin` / `skey` / `p_skey` 缓存复用
-  - 图片上传 `up.qzone.qq.com/cgi-bin/upload/cgi_upload_image`
-  - 发布 `emotion_cgi_publish_v6`
-  - 列表 `emotion_cgi_msglist_v6`
-  - 点赞 `likes/internal_dolike_app`
-  - 评论 `emotion_cgi_re_feeds`
-  - 回复评论 `emotion_cgi_re_feeds`（`h5.qzone.qq.com` 代理，带 `commentId`）
-  - 删除 `emotion_cgi_delete_v6`（`h5.qzone.qq.com` 代理）
+- 10 个 LLM 工具 + 15 个指令：`/qq帮助`、`/改头像`、`/改昵称`、`/改签名`、`/名片赞`、`/发说说`、`/ai说说`、`/写说说`、`/说说列表`、`/赞说说`、`/评说说`、`/评论说说`、`/回复说说`、`/回复评论`、`/删说说`。
+- 空间接口走 NapCat / LLOneBot 的 Cookie 通道，自动缓存登录态、失效重登、非标准 JSON 解析。
+- 所有写操作有全局冷却与每日上限，历史上限记录在 `history.json`。
+- 情绪触发（被夸、被凶、生日）会按概率提醒她改签名或发说说。
+
+## 配置迁移
+
+首次加载时，插件会读取 AstrBot 配置目录下旧四个插件的配置文件：
+
+```
+astrbot_plugin_dafeiyu_complain_config.json
+astrbot_plugin_dafeiyu_usage_config.json
+astrbot_plugin_dafeiyu_voice_config.json
+astrbot_plugin_qq_toolbox_config.json
+```
+
+把其中的键按四命名空间写入新配置 `astrbot_plugin_dafeiyu_suite_config.json`。只在新配置仍为默认值时才覆盖，已经手动改过的新配置不会被旧值打扰。旧插件目录与旧配置文件不会被删除，可以随时回滚。
+
+## 数据文件
+
+各模块仍使用原插件的数据目录，历史数据可直接沿用：
+
+- 告状：`.../astrbot_plugin_dafeiyu_complain/complaints.json`
+- 用量：`.../astrbot_plugin_dafeiyu_usage/usage.json`
+- 语音：`.../astrbot_plugin_dafeiyu_voice/`
+- 工具箱：`.../astrbot_plugin_qq_toolbox/history.json`
 
 ## 常见问题
 
-- **模型不调用工具**：确认已开启函数调用；确认发消息的人是主人（`owner_session` / `extra_admins` / 管理员）。模型对工具名不熟时，可在人设里提一句她有哪些 QQ 能力。
-- **提示没有权限**：私聊里 `is_admin()` 判不出来，把自己的 QQ 填进 `extra_admins`。
-- **获取空间 Cookie 失败**：确认机器人已登录、协议端是 NapCat/LLOneBot 且支持 `get_cookies`。
-- **说说接口返回非 0 错误码**：空间有风控，新号或高频操作容易被限，降低频率、先用小号测。
-- **登录态失效**：插件会自动重取 Cookie 并重试两次；仍失败就检查 NapCat 是否掉线。
-- **图片没发出去**：附图走 `cgi_upload_image`，接口比较脆弱，失败时检查 `max_images` 和图片地址是否可访问；读取失败的图会被跳过。
-- **改头像无反应**：NapCat 需能访问图片地址，临时链接可能失效。
+**指令没反应 / 工具不触发？**
+确认 AstrBot 版本支持插件子模块（本插件已在 `__init__` 里把 Handler 与 LLM 工具归位到 main 路径）；查看日志里是否有「已把 N 个 Handler 归位」。
 
-## 文件结构
+**可视化页面打不开？**
+需要 AstrBot 4.x 的 Plugin Views 与 `context.register_web_api`。老版本会在日志提示「可视化视图不可用」，聊天指令与 LLM 工具不受影响。
 
-```
-astrbot_plugin_qq_toolbox/
-├── main.py            # 插件逻辑（LLM 工具 + 指令）
-├── metadata.yaml      # 插件元数据
-├── _conf_schema.json  # 配置项定义
-├── requirements.txt   # 依赖
-└── README.md          # 本文件
-```
+**空间操作报登录失效？**
+确认 NapCat / LLOneBot 在线且已登录；插件会自动重取 Cookie 并重试两次。
 
-## 版本
-
-- 1.6.1：新增改 QQ 昵称（`qq_set_nickname` / `/改昵称`）
-- 1.6.0：移除 WebUI 只读说说视图，只保留聊天里的工具与指令通道
-- 1.5.0：新增 AI 写说说（`qq_ai_post_feed` / `/ai说说`），可单独指定模型与提示词；配置页按用途分成 7 组
-- 1.4.0：新增 WebUI 只读说说视图（列表 / 评论详情 / 今日配额），不提供写入接口
-- 1.3.0：指令去掉 `qq` 前缀（原 qzone 插件已移除，不再冲突）
-- 1.2.1：增加全局冷却与每日上限（点赞/评论/删除/名片赞），降低空间风控
-- 1.2.0：对齐参考插件重写空间层——说完接口参数、Cookie 缓存与自动重登、附图发布、回复评论
-- 1.1.3：LLM 工具的数字参数改为按字符串传入，修复 4.29.3 不支持 integer 类型
-- 1.1.2：移除 `@register` 装饰器，改用 metadata 注册（修复 AstrBot 4.x 加载报 register 未定义）
-- 1.1.1：加入情绪触发的「自己发说说」，带概率和每日配额
-- 1.1.0：改成 LLM 工具 + 指令双通道，签名改用 `set_self_longnick`，加每日配额与 history.json
-- 1.0.0：首个版本，指令形式
+**语音发不出去？**
+检查 `pysilk` 是否安装、OneBot 适配器是否支持 `send_group_msg` / `send_private_msg`；日志会标明失败环节。
 
 ## 许可证
 

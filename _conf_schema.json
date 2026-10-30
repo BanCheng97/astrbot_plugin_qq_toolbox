@@ -1,179 +1,628 @@
 {
-  "basic": {
-    "description": "权限与主人",
+  "complain": {
+    "description": "告状与传话",
     "type": "object",
-    "hint": "",
+    "hint": "被欺负时私聊家人告状；家里人还能让她传话。四组合集共用一份配置，这里只影响告状模块。",
     "items": {
-      "owner_session": {
-        "description": "主人的私聊会话",
-        "type": "string",
-        "hint": "形如 机器人名:FriendMessage:主人QQ号。只有这个会话里或管理员发的消息，她才会用 LLM 工具操作 QQ",
-        "default": ""
+      "basic": {
+        "description": "主人与开关",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "owner_umo": {
+            "description": "默认告状对象的 UMO（推荐）",
+            "type": "string",
+            "hint": "形如 大肥鱼:FriendMessage:123456；填了优先用它，可跨平台发送，不要求 aiocqhttp",
+            "default": ""
+          },
+          "owner_qq": {
+            "description": "默认告状对象 QQ（UMO 未填时用）",
+            "type": "string",
+            "hint": "纯 QQ 号走 OneBot 私聊，需要 aiocqhttp 适配器，且机器人已加对方为好友",
+            "default": ""
+          },
+          "owner_title": {
+            "description": "默认告状对象怎么称呼",
+            "type": "string",
+            "hint": "告状消息开头用这个称呼，比如「主人」",
+            "default": "主人"
+          },
+          "guardians": {
+            "description": "家人名单（互相告状用）",
+            "type": "list",
+            "hint": "每项写「称呼:QQ号」或「称呼:UMO」，例如 爸爸/爹/老爸:123456、妈妈:大肥鱼:FriendMessage:654321。称呼可用 / 分隔多个叫法；谁欺负她就发给名单里其他人，名单外的人欺负她，就发给 owner_umo/owner_qq",
+            "default": []
+          },
+          "owner_session": {
+            "description": "主人的私聊会话（可选）",
+            "type": "string",
+            "hint": "形如 机器人名:FriendMessage:主人QQ号；没填 owner_umo/owner_qq 时会从这里取号码兜底",
+            "default": ""
+          },
+          "enabled": {
+            "description": "启用告状",
+            "type": "bool",
+            "hint": "关掉后模型调用工具也不会发消息",
+            "default": true
+          },
+          "in_chat_hint": {
+            "description": "告状后提示她在线聊里委屈一下",
+            "type": "bool",
+            "hint": "关掉则只私聊主人，聊天里不做额外引导",
+            "default": true
+          }
+        }
       },
-      "extra_admins": {
-        "description": "额外允许的 QQ 号",
-        "type": "list",
-        "hint": "私聊里管理员判断不生效，把自己和需要放行的人的 QQ 填进来",
-        "default": []
+      "limit": {
+        "description": "频控与措辞",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "cooldown_seconds": {
+            "description": "同一个人告状的冷却秒数",
+            "type": "int",
+            "hint": "同一个人的多次欺负，在这段时间内只告一次",
+            "default": 600
+          },
+          "daily_limit": {
+            "description": "每天最多告几次状",
+            "type": "int",
+            "hint": "所有会话合计，防止刷屏打扰主人",
+            "default": 5
+          },
+          "max_length": {
+            "description": "告状消息最多几个字",
+            "type": "int",
+            "hint": "超出会截断加省略号",
+            "default": 80
+          },
+          "include_source": {
+            "description": "群聊告状时附带群号",
+            "type": "bool",
+            "hint": "方便主人知道是哪个群发生的事",
+            "default": true
+          },
+          "escalate_repeat": {
+            "description": "同一人当天重复欺负时升级告状",
+            "type": "bool",
+            "hint": "第二次起在告状里标注「今天已经第 N 次了」，让收件人看出严重程度",
+            "default": true
+          }
+        }
       },
-      "admin_only": {
-        "description": "斜杠指令仅管理员可用",
-        "type": "bool",
-        "hint": "只影响 / 开头的指令，LLM 工具走 owner_session 和 extra_admins 判断",
-        "default": true
+      "relay": {
+        "description": "传话",
+        "type": "object",
+        "hint": "家里人让她给别人带话时使用，例如「叫你爹起床」",
+        "items": {
+          "relay_enabled": {
+            "description": "启用传话",
+            "type": "bool",
+            "hint": "关掉后模型调用传话工具也不会真的发出去",
+            "default": true
+          },
+          "relay_cooldown_seconds": {
+            "description": "同一个人传话的冷却秒数",
+            "type": "int",
+            "hint": "防止连续传话刷屏",
+            "default": 15
+          },
+          "relay_daily_limit": {
+            "description": "每天最多传几次话",
+            "type": "int",
+            "hint": "所有会话合计",
+            "default": 20
+          }
+        }
       }
     }
   },
-  "signature": {
-    "description": "个性签名",
+  "usage": {
+    "description": "DeepSeek 用量",
     "type": "object",
-    "hint": "",
+    "hint": "让她自己看 DeepSeek 钱包：余额、消耗、token 估算与低余额提醒。",
     "items": {
-      "daily_self_limit": {
-        "description": "她一天最多自己改几次签名",
-        "type": "int",
-        "hint": "主人叫她改的不算在里面",
-        "default": 2
+      "connection": {
+        "description": "DeepSeek 连接",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "api_key": {
+            "description": "DeepSeek API Key",
+            "type": "string",
+            "secret": true,
+            "hint": "在 platform.deepseek.com 的 API keys 页面创建，形如 sk-xxxx；只用于查余额，不会外发",
+            "default": ""
+          },
+          "api_base": {
+            "description": "接口地址",
+            "type": "string",
+            "hint": "默认官方地址；用中转服务时改成对应的 Base URL，插件会拼上 /user/balance",
+            "default": "https://api.deepseek.com"
+          },
+          "timeout_seconds": {
+            "description": "请求超时（秒）",
+            "type": "int",
+            "hint": "查余额接口一般很快，网络不好可以调大",
+            "default": 15
+          }
+        }
       },
-      "daily_owner_limit": {
-        "description": "主人叫她改签名，一天最多几次",
-        "type": "int",
-        "default": 10
+      "access": {
+        "description": "权限与开关",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "enabled": {
+            "description": "启用用量功能",
+            "type": "bool",
+            "hint": "关掉后工具和指令都不查，也不会发低余额提醒",
+            "default": true
+          },
+          "cmd_admin_only": {
+            "description": "指令仅管理员可用",
+            "type": "bool",
+            "hint": "关掉后谁发 /用量 都能看到余额",
+            "default": true
+          },
+          "tool_public": {
+            "description": "允许她对外人说余额",
+            "type": "bool",
+            "hint": "关掉后只有管理员问，她才会报具体数字；默认开着，别人问也能自然回答",
+            "default": true
+          },
+          "cache_seconds": {
+            "description": "查询缓存秒数",
+            "type": "int",
+            "hint": "这段时间内重复询问直接用上次结果，避免频繁请求接口",
+            "default": 60
+          },
+          "owner_session": {
+            "description": "主人会话（可选）",
+            "type": "string",
+            "hint": "形如 大肥鱼:FriendMessage:123456；填了之后这个会话里自动算管理员",
+            "default": ""
+          },
+          "extra_admins": {
+            "description": "额外管理员 QQ",
+            "type": "list",
+            "hint": "每项一个 QQ 号，这些人也能用 /用量、/余额",
+            "default": []
+          }
+        }
       },
-      "max_length": {
-        "description": "签名最多几个字",
-        "type": "int",
-        "default": 40
+      "alert": {
+        "description": "低余额提醒",
+        "type": "object",
+        "hint": "余额低于阈值时，她主动私聊主人一次，同一天最多提醒一次",
+        "items": {
+          "alert_enabled": {
+            "description": "启用低余额提醒",
+            "type": "bool",
+            "hint": "关掉后只在被问到时才报余额",
+            "default": true
+          },
+          "alert_use_llm": {
+            "description": "用她自己的语气写提醒",
+            "type": "bool",
+            "hint": "开着时让当前对话模型按人格写一句撒娇求充值的话；关掉或模型不可用时用内置撒娇文案",
+            "default": true
+          },
+          "alert_text": {
+            "description": "自定义提醒文案（可选）",
+            "type": "string",
+            "hint": "留空用模型/内置文案；填了就固定用它，可用 {balance}、{threshold}、{days} 占位",
+            "default": ""
+          },
+          "alert_threshold": {
+            "description": "提醒阈值（元）",
+            "type": "int",
+            "hint": "余额小于等于这个数就提醒，填 0 等于不按余额提醒",
+            "default": 5
+          },
+          "alert_umo": {
+            "description": "提醒发送的 UMO（推荐）",
+            "type": "string",
+            "hint": "形如 大肥鱼:FriendMessage:123456；走 AstrBot 主动消息，跨平台可用",
+            "default": ""
+          },
+          "alert_qq": {
+            "description": "提醒发送的 QQ（UMO 未填时用）",
+            "type": "string",
+            "hint": "纯 QQ 号走 OneBot 私聊，需要 aiocqhttp 适配器且机器人已加对方好友",
+            "default": ""
+          },
+          "check_interval_hours": {
+            "description": "多久检查一次（小时）",
+            "type": "int",
+            "hint": "填 0 关闭定时检查，只保留手动查询",
+            "default": 6
+          }
+        }
       },
-      "self_change_hint": {
-        "description": "主人夸她、凶她、说生日时，提醒她顺手改签名",
-        "type": "bool",
-        "hint": "不开的话，她自己改签名全靠人设，很少主动改",
-        "default": true
+      "stats": {
+        "description": "统计与保留",
+        "type": "object",
+        "hint": "DeepSeek 只提供余额接口，消耗是按余额快照推算的，查得越勤越准；token 数再用单价换算",
+        "items": {
+          "token_price": {
+            "description": "token 单价（元/百万）",
+            "type": "float",
+            "hint": "把花销换算成 token 数用。deepseek-chat 输入约 2-4 元/百万、输出约 12 元/百万，按常用模型填个综合值即可；填 0 关闭 token 估算",
+            "default": 4.0
+          },
+          "keep_days": {
+            "description": "快照保留天数",
+            "type": "int",
+            "hint": "超过这个天数的旧快照自动清理，0 表示一直保留",
+            "default": 90
+          }
+        }
+      },
+      "persona": {
+        "description": "说话方式",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "persona_hint": {
+            "description": "回答时的口吻提示",
+            "type": "string",
+            "hint": "查完余额后追加给模型的提示，让她按自己的语气说话；留空用默认的「像讲自己钱包」",
+            "default": ""
+          }
+        }
       }
     }
   },
-  "feed": {
-    "description": "说说与空间",
+  "voice": {
+    "description": "语音识别与合成",
     "type": "object",
-    "hint": "",
+    "hint": "收到的语音自动转文字；回复可合成语音发送，支持歌唱模式。",
     "items": {
-      "self_feed_hint": {
-        "description": "主人夸她、凶她、说生日时，偶尔提醒她可以自己发条说说",
-        "type": "bool",
-        "hint": "不开的话，说说只会在主人明确要求时发",
-        "default": true
+      "listen": {
+        "description": "语音识别（STT）",
+        "type": "object",
+        "hint": "收到的语音自动转录为文本，供模型理解；识别后端固定走 MiMo ASR（mimo-v2.5-asr）",
+        "items": {
+          "listen_enabled": {
+            "description": "启用自动语音识别",
+            "type": "bool",
+            "hint": "关闭后将不再处理语音消息",
+            "default": true
+          },
+          "listen_hint": {
+            "description": "转录注入提示词",
+            "type": "string",
+            "hint": "转录文本后附加的引导语，用于提示模型以下内容为语音转写结果；留空使用默认提示",
+            "default": ""
+          },
+          "mimo_stt_api_key": {
+            "description": "MiMo API Key",
+            "type": "string",
+            "secret": true,
+            "hint": "从 https://platform.xiaomimimo.com 申请；留空则复用语音合成里的 Key",
+            "default": ""
+          },
+          "mimo_stt_model": {
+            "description": "识别模型",
+            "type": "string",
+            "default": "mimo-v2.5-asr",
+            "options": ["mimo-v2.5-asr"],
+            "hint": "目前 MiMo 只提供 mimo-v2.5-asr"
+          },
+          "mimo_stt_language": {
+            "description": "识别语种",
+            "type": "string",
+            "default": "zh",
+            "options": ["zh", "en", "auto"],
+            "hint": "明确语种识别更准；auto 为自动检测"
+          }
+        }
       },
-      "feed_hint_chance": {
-        "description": "触发说说提醒的概率",
-        "type": "float",
-        "hint": "0-1，默认 0.25，即四次情绪触发大概有一次会提示她发说说",
-        "default": 0.25
+      "speak": {
+        "description": "语音合成（TTS）",
+        "type": "object",
+        "hint": "把文本回复合成为语音发送；先选后端，再填对应后端的配置，未选用的那组留空即可",
+        "items": {
+          "speak_enabled": {
+            "description": "启用语音合成",
+            "type": "bool",
+            "hint": "关闭后所有语音合成功能将停用",
+            "default": true
+          },
+          "tts_backend": {
+            "description": "TTS 后端",
+            "type": "string",
+            "default": "breeze",
+            "options": ["breeze", "mimo"],
+            "hint": "breeze = BreezeBlue 直连（内置 provider 优先）；mimo = 小米 MiMo 原生 TTS（mimo-v2.5-tts）"
+          },
+          "breeze": {
+            "description": "BreezeBlue 配置",
+            "type": "object",
+            "hint": "仅当 TTS 后端选 breeze 时生效",
+            "items": {
+              "breeze_api_key": {
+                "description": "API Key",
+                "type": "string",
+                "secret": true,
+                "hint": "从 https://breezeblue.ai/zh?code=6ZQLZ6 申请",
+                "default": ""
+              },
+              "breeze_voice_id": {
+                "description": "Voice ID",
+                "type": "string",
+                "hint": "从 https://breezeblue.ai/zh/app/voice-library 选取音色，复制 voice_id（如 voc_xeh3w54cqvnp）",
+                "default": ""
+              },
+              "breeze_model": {
+                "description": "合成模型",
+                "type": "string",
+                "default": "breeze-tts-2",
+                "options": ["breeze-tts-2", "breeze-tts-1"],
+                "hint": "默认 breeze-tts-2，合成质量更佳"
+              }
+            }
+          },
+          "mimo_tts": {
+            "description": "MiMo 配置",
+            "type": "object",
+            "hint": "仅当 TTS 后端选 mimo 时生效",
+            "items": {
+              "mimo_tts_api_key": {
+                "description": "MiMo API Key",
+                "type": "string",
+                "secret": true,
+                "hint": "留空则复用识别分组的 MiMo Key，再退回复用 BreezeBlue Key",
+                "default": ""
+              },
+              "mimo_tts_model": {
+                "description": "合成模型",
+                "type": "string",
+                "default": "mimo-v2.5-tts",
+                "options": ["mimo-v2.5-tts", "mimo-v2.5-tts-voiceclone", "mimo-v2.5-tts-voicedesign"],
+                "hint": "内置音色版支持唱歌；voiceclone 需在音色填克隆音色 ID；voicedesign 用文字描述生成音色"
+              },
+              "mimo_tts_voice": {
+                "description": "音色",
+                "type": "string",
+                "hint": "内置音色：冰糖 / 茉莉 / 苏打 / 白桦 / Mia / Chloe / Milo / Dean；「冰糖」「Mia」最接近真人。想更像真人可用 voiceclone 模型克隆自己的声音。默认 mimo_default",
+                "default": "mimo_default"
+              }
+            }
+          },
+          "tts_instructions": {
+            "description": "语气指令（可选）",
+            "type": "string",
+            "hint": "自然语言描述语气风格，如「温柔撒娇，语速慢，像刚睡醒」；两种后端都生效，留空使用默认",
+            "default": ""
+          },
+          "speak_prob_percent": {
+            "description": "自动触发概率（0-100）",
+            "type": "int",
+            "hint": "每次 LLM 回复后自动发送语音的概率，设为 0 表示仅手动触发",
+            "slider": {"min": 0, "max": 100, "step": 5},
+            "default": 10
+          },
+          "speak_max_chars": {
+            "description": "自动触发最大字数",
+            "type": "int",
+            "hint": "超过该字数的回复将不自动合成语音，避免过长",
+            "slider": {"min": 50, "max": 1000, "step": 50},
+            "default": 300
+          }
+        }
       },
-      "daily_feed_limit": {
-        "description": "一天最多发几条说说",
-        "type": "int",
-        "default": 2
+      "sing": {
+        "description": "歌唱模式",
+        "type": "object",
+        "hint": "对歌词进行带停顿的语音合成，模拟演唱效果",
+        "items": {
+          "sing_enabled": {
+            "description": "启用歌唱模式",
+            "type": "bool",
+            "hint": "关闭后 /唱 指令及工具调用将停用",
+            "default": true
+          }
+        }
       },
-      "max_list": {
-        "description": "说说列表默认显示条数（上限 20）",
-        "type": "int",
-        "default": 10
-      },
-      "max_images": {
-        "description": "一条说说最多附几张图",
-        "type": "int",
-        "hint": "上限 9 张，0 表示不允许附图",
-        "default": 9
+      "misc": {
+        "description": "通用",
+        "type": "object",
+        "hint": "识别与合成共用的请求参数",
+        "items": {
+          "timeout_seconds": {
+            "description": "请求超时（秒）",
+            "type": "int",
+            "hint": "HTTP 请求通用超时；语音识别/合成耗时长，建议 60",
+            "default": 60
+          }
+        }
       }
     }
   },
-  "llm": {
-    "description": "AI 写说说",
+  "toolbox": {
+    "description": "QQ 资料与空间",
     "type": "object",
-    "hint": "主人说「你自己写一条说说」或使用 /ai说说 时，用这里配置的模型和提示词生成正文",
+    "hint": "改昵称、改签名、发说说、点赞评论删说说、名片赞；需要 aiocqhttp（NapCat / LLOneBot）。",
     "items": {
-      "post_provider_id": {
-        "description": "写说说用的 LLM 提供商",
-        "type": "string",
-        "hint": "留空或填写的提供商不存在时，使用当前会话正在用的 LLM 提供商",
-        "default": "",
-        "_special": "select_provider"
+      "basic": {
+        "description": "权限与主人",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "owner_session": {
+            "description": "主人的私聊会话",
+            "type": "string",
+            "hint": "形如 机器人名:FriendMessage:主人QQ号。只有这个会话里或管理员发的消息，她才会用 LLM 工具操作 QQ",
+            "default": ""
+          },
+          "extra_admins": {
+            "description": "额外允许的 QQ 号",
+            "type": "list",
+            "hint": "私聊里管理员判断不生效，把自己和需要放行的人的 QQ 填进来",
+            "default": []
+          },
+          "admin_only": {
+            "description": "斜杠指令仅管理员可用",
+            "type": "bool",
+            "hint": "只影响 / 开头的指令，LLM 工具走 owner_session 和 extra_admins 判断",
+            "default": true
+          }
+        }
       },
-      "post_prompt": {
-        "description": "写说说用的提示词",
-        "type": "text",
-        "hint": "建议按 Bot 的人格改写，比如指定语气、长度、要不要带表情",
-        "default": "写一条你此刻的 QQ 空间说说，用你自己的口吻，40 字以内，可以带一点情绪、吐槽或感慨。"
-      }
-    }
-  },
-  "card": {
-    "description": "名片赞",
-    "type": "object",
-    "hint": "",
-    "items": {
-      "like_times": {
-        "description": "名片赞默认点赞次数（上限 20）",
-        "type": "int",
-        "default": 10
+      "signature": {
+        "description": "个性签名",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "daily_self_limit": {
+            "description": "她一天最多自己改几次签名",
+            "type": "int",
+            "hint": "主人叫她改的不算在里面",
+            "default": 2
+          },
+          "daily_owner_limit": {
+            "description": "主人叫她改签名，一天最多几次",
+            "type": "int",
+            "default": 10
+          },
+          "max_length": {
+            "description": "签名最多几个字",
+            "type": "int",
+            "default": 40
+          },
+          "self_change_hint": {
+            "description": "主人夸她、凶她、说生日时，提醒她顺手改签名",
+            "type": "bool",
+            "hint": "不开的话，她自己改签名全靠人设，很少主动改",
+            "default": true
+          }
+        }
       },
-      "daily_card_like_limit": {
-        "description": "每天名片赞上限",
-        "type": "int",
-        "default": 30
-      }
-    }
-  },
-  "risk": {
-    "description": "风控与频率",
-    "type": "object",
-    "hint": "空间有风控，新号或高频操作容易被限，拿不准就调低",
-    "items": {
-      "cooldown_seconds": {
-        "description": "写操作全局冷却（秒）",
-        "type": "int",
-        "hint": "发说说、点赞、评论、回复、删除、名片赞之间至少间隔多少秒，0 为不限制",
-        "default": 15
+      "feed": {
+        "description": "说说与空间",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "self_feed_hint": {
+            "description": "主人夸她、凶她、说生日时，偶尔提醒她可以自己发条说说",
+            "type": "bool",
+            "hint": "不开的话，说说只会在主人明确要求时发",
+            "default": true
+          },
+          "feed_hint_chance": {
+            "description": "触发说说提醒的概率",
+            "type": "float",
+            "hint": "0-1，默认 0.25，即四次情绪触发大概有一次会提示她发说说",
+            "default": 0.25
+          },
+          "daily_feed_limit": {
+            "description": "一天最多发几条说说",
+            "type": "int",
+            "default": 2
+          },
+          "max_list": {
+            "description": "说说列表默认显示条数（上限 20）",
+            "type": "int",
+            "default": 10
+          },
+          "max_images": {
+            "description": "一条说说最多附几张图",
+            "type": "int",
+            "hint": "上限 9 张，0 表示不允许附图",
+            "default": 9
+          }
+        }
       },
-      "daily_like_limit": {
-        "description": "每天说说点赞上限",
-        "type": "int",
-        "default": 20
+      "llm": {
+        "description": "AI 写说说",
+        "type": "object",
+        "hint": "主人说「你自己写一条说说」或使用 /ai说说 时，用这里配置的模型和提示词生成正文",
+        "items": {
+          "post_provider_id": {
+            "description": "写说说用的 LLM 提供商",
+            "type": "string",
+            "hint": "留空或填写的提供商不存在时，使用当前会话正在用的 LLM 提供商",
+            "default": "",
+            "_special": "select_provider"
+          },
+          "post_prompt": {
+            "description": "写说说用的提示词",
+            "type": "text",
+            "hint": "建议按 Bot 的人格改写，比如指定语气、长度、要不要带表情",
+            "default": "写一条你此刻的 QQ 空间说说，用你自己的口吻，40 字以内，可以带一点情绪、吐槽或感慨。"
+          }
+        }
       },
-      "daily_comment_limit": {
-        "description": "每天评论+回复上限",
-        "type": "int",
-        "default": 10
+      "card": {
+        "description": "名片赞",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "like_times": {
+            "description": "名片赞默认点赞次数（上限 20）",
+            "type": "int",
+            "default": 10
+          },
+          "daily_card_like_limit": {
+            "description": "每天名片赞上限",
+            "type": "int",
+            "default": 30
+          }
+        }
       },
-      "daily_delete_limit": {
-        "description": "每天删除说说上限",
-        "type": "int",
-        "default": 5
-      }
-    }
-  },
-  "network": {
-    "description": "空间连接",
-    "type": "object",
-    "hint": "",
-    "items": {
-      "qzone_domain": {
-        "description": "获取 Cookie 的域名",
-        "type": "string",
-        "hint": "默认 user.qzone.qq.com，失败时会自动回退 qzone.qq.com",
-        "default": "user.qzone.qq.com"
+      "risk": {
+        "description": "风控与频率",
+        "type": "object",
+        "hint": "空间有风控，新号或高频操作容易被限，拿不准就调低",
+        "items": {
+          "cooldown_seconds": {
+            "description": "写操作全局冷却（秒）",
+            "type": "int",
+            "hint": "发说说、点赞、评论、回复、删除、名片赞之间至少间隔多少秒，0 为不限制",
+            "default": 15
+          },
+          "daily_like_limit": {
+            "description": "每天说说点赞上限",
+            "type": "int",
+            "default": 20
+          },
+          "daily_comment_limit": {
+            "description": "每天评论+回复上限",
+            "type": "int",
+            "default": 10
+          },
+          "daily_delete_limit": {
+            "description": "每天删除说说上限",
+            "type": "int",
+            "default": 5
+          }
+        }
       },
-      "cookie_ttl": {
-        "description": "空间 Cookie 缓存秒数",
-        "type": "int",
-        "hint": "缓存 uin/skey/p_skey，到期后重新获取；0 表示每次请求都重新取",
-        "default": 600
-      },
-      "timeout": {
-        "description": "空间接口超时（秒）",
-        "type": "int",
-        "default": 20
+      "network": {
+        "description": "空间连接",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "qzone_domain": {
+            "description": "获取 Cookie 的域名",
+            "type": "string",
+            "hint": "默认 user.qzone.qq.com，失败时会自动回退 qzone.qq.com",
+            "default": "user.qzone.qq.com"
+          },
+          "cookie_ttl": {
+            "description": "空间 Cookie 缓存秒数",
+            "type": "int",
+            "hint": "缓存 uin/skey/p_skey，到期后重新获取；0 表示每次请求都重新取",
+            "default": 600
+          },
+          "timeout": {
+            "description": "空间接口超时（秒）",
+            "type": "int",
+            "default": 20
+          }
+        }
       }
     }
   }

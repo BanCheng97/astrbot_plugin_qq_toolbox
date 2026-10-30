@@ -1,1767 +1,866 @@
-"""AstrBot 插件：QQ 资料与空间工具箱（大肥鱼版）
+"""大肥鱼合集插件入口。
 
-双通道设计：
-1. LLM 工具通道（主路径）：把改昵称、改签名、发说说、点赞/评论/回复/删除说说、名片赞做成
-   function calling 工具，由模型用大白话触发，返回的是「人格化提示语」而不是
-   固定模板，因此对话里没有人机感。
-2. 斜杠指令通道（兜底）：/改头像 /改昵称 /改签名 /名片赞 /发说说 /说说列表
-   /赞说说 /评说说 /回复评论 /删说说，方便手动操作。
+把原来的四个独立插件（告状 / 用量 / 语音 / QQ 工具箱）合并成一个插件：
 
-空间接口部分参考了 Zhalslar/astrbot_plugin_qzone 的实现：
-- Cookie 上下文缓存（uin / skey / p_skey），按 TTL 自动刷新
-- 登录态失效（401 / -3000）自动重登并重试
-- 非标准 JSON / JSONP 响应解析
-- 发说说支持附图（cgi_upload_image + pic_bo/richval）
+- 只有一个入口类 ``DafeiyuSuitePlugin``，业务分别放在四个 Mixin 里；
+- 公共能力（配置查找、数据目录、JSON、OneBot 客户端）收在 ``modules/base.py``；
+- 各模块的方法名都加了前缀，避免多继承时静默覆盖；
+- 配置按 ``complain / usage / voice / toolbox`` 四个命名空间隔离；
+- 自带 Plugin Views 页面（``views/suite/index.html``）和对应的 Web API。
 
-依赖 NapCat / LLOneBot 等支持扩展 API 的 OneBot v11 实现（aiocqhttp 适配器）。
+AstrBot 只给「main 模块路径」下的 Handler 绑定实例、并参与事件分发，
+所以这里额外做了两件事：
+1. ``_rehome_handlers`` 把子模块里的 Handler 重新挂到 main 模块路径；
+2. ``_migrate_legacy_config`` 把旧四个插件的配置迁移进新命名空间。
 """
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import os
-import random
 import re
+import tempfile
 import time
-from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
-from typing import Any, AsyncGenerator
-from urllib.parse import unquote, urlparse
-
-import aiohttp
+from typing import Any
 
 from astrbot import logger
-from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.message_components import At, Image
-from astrbot.api.star import Context, Star, StarTools
+from astrbot.api.star import Context, Star
 
-try:
-    from astrbot.core.config.astrbot_config import AstrBotConfig
-except ImportError:  # 兼容老版本
-    try:
-        from astrbot.api import AstrBotConfig
-    except ImportError:
-        AstrBotConfig = dict  # type: ignore
+try:  # AstrBot 4.x 推荐写法
+    from astrbot.api.web import error_response, json_response, request
+except Exception:  # pragma: no cover - 仅用于老版本 / 本地单测
+    def json_response(data: Any, status_code: int = 200) -> Any:
+        return data
 
-NAME = "astrbot_plugin_qq_toolbox"
+    def error_response(message: str, status_code: int = 400) -> Any:
+        return {"status": "error", "message": message, "code": status_code}
 
-UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
-)
+    class _FallbackRequest:
+        async def json(self, default: Any = None) -> Any:
+            return {} if default is None else default
 
-BASE_URL = "https://user.qzone.qq.com"
+        async def files(self) -> dict:
+            return {}
 
-# 空间接口（与参考插件保持一致）
-API_UPLOAD = "https://up.qzone.qq.com/cgi-bin/upload/cgi_upload_image"
-API_PUBLISH = (
-    "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_publish_v6"
-)
-API_DELETE = (
-    "https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_delete_v6"
-)
-API_COMMENT = (
-    "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
-)
-API_REPLY = (
-    "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
-)
-API_LIST = (
-    "https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msglist_v6"
-)
-API_LIKE = (
-    "https://user.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app"
-)
+        async def form(self) -> dict:
+            return {}
 
-# 登录态失效的错误码
-CODE_LOGIN_EXPIRED = -3000
-CODE_IMAGE_EXPIRED = -100
+        class _Query:
+            def get(self, key: str, default: Any = None, type: Any = None) -> Any:
+                return default
 
-# 主人话里出现这些词，就提醒她这次可以顺手改个签名
-MOODS = {
-    "在夸你": ["真棒", "真厉害", "好厉害", "你厉害", "太强了", "好聪明", "真聪明", "真乖", "好可爱", "真可爱", "最喜欢你", "夸你"],
-    "在说你，你有点委屈": ["好笨", "真笨", "笨死", "笨蛋", "讨厌你", "烦死", "没用", "闭嘴", "滚", "傻", "凶你", "不理你"],
-    "说今天是他的生日": ["我生日", "我的生日", "生日快乐", "过生日"],
+        query = _Query()
+
+    request = _FallbackRequest()  # type: ignore[assignment]
+
+from .modules import ComplainMixin, ToolboxMixin, UsageMixin, VoiceMixin
+from .modules.base import MISSING, flatten_dict, nested_get, nested_set, to_bool, to_float, to_int
+
+PLUGIN_NAME = "astrbot_plugin_qq_toolbox"
+ALIAS_NAME = "astrbot_plugin_dafeiyu_suite"
+SUITE_VERSION = "2.0.0"
+
+PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
+SCHEMA_PATH = os.path.join(PLUGIN_ROOT, "_conf_schema.json")
+
+# 旧插件目录名 -> 新配置命名空间
+LEGACY_MODULES = {
+    "complain": "astrbot_plugin_dafeiyu_complain",
+    "usage": "astrbot_plugin_dafeiyu_usage",
+    "voice": "astrbot_plugin_dafeiyu_voice",
+    "toolbox": "astrbot_plugin_qq_toolbox",
 }
 
-DEFAULT_POST_PROMPT = (
-    "写一条你此刻的 QQ 空间说说，用你自己的口吻，40 字以内，可以带一点情绪、吐槽或感慨。"
-)
-
-HELP_TEXT = """QQ 工具箱指令（也可以直接用大白话跟她说，不必用指令）：
-/改头像（消息附图片）  修改机器人头像
-/改昵称 <昵称>  修改机器人 QQ 昵称
-/改签名 <内容>  修改机器人个性签名
-/名片赞 [@某人] [次数]  给名片点赞
-/发说说 <内容>（可附图）  发布空间说说
-/ai说说 [主题]  让她用模型自己写一条说说（也可用 /写说说）
-/说说列表 [数量]  查看最近说说（带序号和评论序号）
-/赞说说 [序号]  给说说点赞
-/评说说 [序号] <内容>  评论说说
-/回复评论 <说说序号> <评论序号> <内容>  回复某条评论
-/删说说 [序号]  删除说说"""
+_SCHEMA_CACHE: dict[str, Any] | None = None
 
 
-def hash33(seed: str) -> int:
-    """QQ 空间 g_tk 计算。"""
-    value = 5381
-    for char in seed:
-        value += (value << 5) + ord(char)
-    return value & 0x7FFFFFFF
-
-
-def parse_cookies(raw: Any) -> dict[str, str]:
-    """把字符串 / 列表 / 字典形态的 Cookie 统一成字典。"""
-    jar: dict[str, str] = {}
-    if not raw:
-        return jar
-    if isinstance(raw, dict):
-        return {str(k): str(v) for k, v in raw.items()}
-    if isinstance(raw, list):
-        for item in raw:
-            if isinstance(item, dict) and item.get("name") is not None:
-                jar[str(item["name"])] = str(item.get("value", ""))
-        return jar
-    if isinstance(raw, str):
-        for part in raw.split(";"):
-            part = part.strip()
-            if not part:
-                continue
-            if "=" in part:
-                key, _, val = part.partition("=")
-                jar[key.strip()] = val.strip()
-            else:
-                jar[part] = ""
-    return jar
-
-
-def extract_cookies(resp: Any) -> str:
-    """从 get_cookies / get_credentials 的返回中取出 Cookie 字符串。"""
-    if not isinstance(resp, dict):
-        return ""
-    data = resp.get("data", resp)
-    if isinstance(data, str):
-        return data.strip()
-    if isinstance(data, dict):
-        for key in ("cookies", "cookie"):
-            val = data.get(key)
-            if isinstance(val, str) and val.strip():
-                return val.strip()
-            if isinstance(val, list):
-                parts = [
-                    f"{item.get('name')}={item.get('value', '')}"
-                    for item in val
-                    if isinstance(item, dict) and item.get("name") is not None
-                ]
-                if parts:
-                    return "; ".join(parts)
-    return ""
-
-
-def parse_json(text: str) -> dict:
-    """解析 JSONP / 非标准 JSON 响应。"""
-    text = (text or "").strip()
-    if not text:
-        raise RuntimeError("空间接口返回内容为空")
-    if "data error" in text[:200].lower():
-        raise RuntimeError("空间接口返回 data error：登录态或 g_tk 可能失效")
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        raise RuntimeError(f"空间接口返回内容异常：{text[:120]}")
-    payload = text[start:end + 1].replace("undefined", "null")
-    try:
-        data = json.loads(payload)
-    except json.JSONDecodeError:
+def _load_schema() -> dict[str, Any]:
+    global _SCHEMA_CACHE
+    if _SCHEMA_CACHE is None:
         try:
-            import json5  # type: ignore
-
-            data = json5.loads(payload)
+            with open(SCHEMA_PATH, "r", encoding="utf-8") as file:
+                _SCHEMA_CACHE = json.load(file)
         except Exception as exc:
-            snippet = re.sub(r"\s+", " ", text)[:160]
-            raise RuntimeError(f"空间接口返回的不是 JSON：{snippet}") from exc
-    if not isinstance(data, dict):
-        raise RuntimeError("空间接口返回的不是对象")
-    return data
+            logger.warning(f"[suite] 读取配置 schema 失败: {exc}")
+            _SCHEMA_CACHE = {}
+    return _SCHEMA_CACHE
 
 
-def to_int(value: Any, default: int) -> int:
-    """LLM 工具的参数统一按字符串传，这里容错转成整数。"""
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        return default
+def _items_of(node: Any) -> dict[str, Any]:
+    """取 schema 节点的子项。
 
-
-def split_sources(raw: str) -> list[str]:
-    """把逗号/空格/换行分隔的图片地址拆开。"""
-    return [item for item in re.split(r"[\s,，;]+", raw or "") if item]
-
-
-def clean_text(value: Any, limit: int = 80) -> str:
-    """去掉空间正文里的 HTML / 表情标记，压成一行。"""
-    text = re.sub(r"<[^>]+>", "", str(value or ""))
-    text = re.sub(r"\[em\].*?\[/em\]", "", text)
-    text = re.sub(r"\{.*?\}", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:limit] + "…" if len(text) > limit else text
-
-
-def flatten_config(raw: Any) -> dict[str, Any]:
-    """把配置页的分组（object）拍平，业务代码继续用扁平键读取。"""
-    flat: dict[str, Any] = {}
-    if not isinstance(raw, dict):
-        return flat
-    for key, value in raw.items():
-        if isinstance(value, dict):
-            nested = flatten_config(value)
-            if nested:
-                flat.update(nested)
-                continue
-        flat[key] = value
-    return flat
-
-
-def load_schema_groups() -> dict[str, tuple[str, Any]]:
-    """配置键 -> (所属分组, 默认值)，用于旧版扁平配置的一次性迁移。"""
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_conf_schema.json")
-    try:
-        with open(path, encoding="utf-8-sig") as fp:
-            schema = json.load(fp)
-    except (OSError, json.JSONDecodeError):
+    配置 schema 的顶层直接就是模块名（没有 "items"），往下每一层才是
+    ``{"type": "object", "items": {...}}``，这里统一抹平两种形态。
+    """
+    if not isinstance(node, dict):
         return {}
-    groups: dict[str, tuple[str, Any]] = {}
-    for group, conf in schema.items():
-        if isinstance(conf, dict) and isinstance(conf.get("items"), dict):
-            for key, item in conf["items"].items():
-                default = item.get("default") if isinstance(item, dict) else None
-                groups[key] = (group, default)
-    return groups
+    items = node.get("items")
+    if isinstance(items, dict):
+        return items
+    return {key: value for key, value in node.items() if isinstance(value, dict)}
 
 
-SCHEMA_GROUPS = load_schema_groups()
+def _iter_leaves(node: Any, path: tuple[str, ...] = ()):
+    """遍历 schema，产出（路径, 叶子配置）二元组。"""
+    for key, spec in _items_of(node).items():
+        next_path = path + (key,)
+        if spec.get("type") == "object":
+            yield from _iter_leaves(spec, next_path)
+        else:
+            yield next_path, spec
 
 
-@dataclass
-class QZoneSession:
-    """一次空间请求所需的登录上下文。"""
-
-    uin: str
-    skey: str = ""
-    p_skey: str = ""
-    csrf_token: str = ""
-
-    @property
-    def g_tk(self) -> str:
-        seed = self.p_skey or self.skey
-        if seed:
-            return str(hash33(seed))
-        if self.csrf_token.isdigit():
-            return self.csrf_token
-        return "0"
-
-    def cookies(self) -> dict[str, str]:
-        return {
-            "uin": f"o{self.uin}",
-            "skey": self.skey,
-            "p_skey": self.p_skey,
-        }
-
-    def headers(self, url: str) -> dict[str, str]:
-        host = urlparse(url).hostname or "user.qzone.qq.com"
-        return {
-            "User-Agent": UA,
-            "Referer": f"{BASE_URL}/{self.uin}",
-            "Origin": BASE_URL,
-            "Host": host,
-            "Connection": "keep-alive",
-        }
+def _defaults_of(node: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, spec in _items_of(node).items():
+        if spec.get("type") == "object":
+            out[key] = _defaults_of(spec)
+        else:
+            out[key] = spec.get("default")
+    return out
 
 
-class QQToolboxPlugin(Star):
-    # 写操作频控：每日上限（配置键, 默认值, 中文名）
-    LIMITS = {
-        "like": ("daily_like_limit", 20, "说说点赞"),
-        "comment": ("daily_comment_limit", 10, "说说评论/回复"),
-        "delete": ("daily_delete_limit", 5, "删除说说"),
-        "card_like": ("daily_card_like_limit", 30, "名片赞"),
-    }
+def _deep_merge(base: dict, extra: dict) -> dict:
+    out = dict(base)
+    for key, value in (extra or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
 
-    def __init__(self, context: Context, config: AstrBotConfig | None = None):
-        super().__init__(context)
-        self._migrate_config(config)
-        self.config = flatten_config(config)
-        # uin -> 最近一次说说列表
-        self._last_list: dict[str, list[dict]] = {}
-        # self_id -> (会话, 刷新时间)
-        self._sess_cache: dict[str, tuple[QZoneSession, float]] = {}
-        self._sess_locks: dict[str, asyncio.Lock] = {}
-        self._http: aiohttp.ClientSession | None = None
-        # 上一次写操作时间，用于全局冷却
-        self._last_write = 0.0
-        try:
-            self.history_path = os.path.join(
-                str(StarTools.get_data_dir(NAME)), "history.json"
-            )
-        except Exception as exc:
-            logger.warning(f"[qq_toolbox] 获取数据目录失败，改用当前目录: {exc}")
-            self.history_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "history.json"
-            )
 
-    async def terminate(self):
-        """插件卸载时释放 HTTP 连接池。"""
-        if self._http is not None and not self._http.closed:
-            await self._http.close()
-        self._http = None
+def _spec_at(path: list[str]) -> dict[str, Any] | None:
+    node: Any = _load_schema()
+    for part in path:
+        items = _items_of(node)
+        if part not in items:
+            return None
+        node = items[part]
+    if isinstance(node, dict) and node.get("type") != "object":
+        return node
+    return None
 
-    def _migrate_config(self, config: Any) -> None:
-        """把旧版扁平配置挪进新分组，避免升级后设置看起来被清空。"""
-        if not isinstance(config, dict):
-            return
-        changed = False
-        for key, (group, default) in SCHEMA_GROUPS.items():
-            if key not in config or isinstance(config.get(key), dict):
-                continue
-            legacy = config.get(key)
-            bucket = config.get(group)
-            if not isinstance(bucket, dict):
-                bucket = {}
-                config[group] = bucket
-            if bucket.get(key, default) == default and legacy != default:
-                bucket[key] = legacy
-                changed = True
-            config.pop(key, None)
-        if not changed:
-            return
-        save = getattr(config, "save_config", None)
-        if not callable(save):
-            return
-        try:
-            save()
-            logger.info("[qq_toolbox] 旧版扁平配置已迁移到分组")
-        except Exception as exc:
-            logger.warning(f"[qq_toolbox] 保存迁移后的配置失败: {exc}")
 
-    # ---------------- 历史记录 / 配额 -----------------------------
+def _coerce(value: Any, kind: str | None, default: Any = None) -> Any:
+    if kind == "bool":
+        return to_bool(value, bool(default))
+    if kind == "int":
+        return to_int(value, to_int(default, 0))
+    if kind == "float":
+        return to_float(value, to_float(default, 0.0))
+    if kind == "list":
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            return [item.strip() for item in value.replace("\n", ",").split(",") if item.strip()]
+        return [] if value is None else [value]
+    if value is None:
+        return "" if default is None else default
+    return str(value)
 
-    def _load(self) -> list[dict]:
-        try:
-            with open(self.history_path, encoding="utf-8") as fp:
-                data = json.load(fp)
-            return data if isinstance(data, list) else []
-        except (OSError, json.JSONDecodeError):
-            return []
 
-    def _save(self, history: list[dict]) -> None:
-        os.makedirs(os.path.dirname(self.history_path), exist_ok=True)
-        with open(self.history_path, "w", encoding="utf-8") as fp:
-            json.dump(history[-300:], fp, ensure_ascii=False, indent=1)
+def _secret_paths() -> list[tuple[str, ...]]:
+    return [path for path, spec in _iter_leaves(_load_schema()) if spec.get("secret")]
 
-    def _record(self, entry: dict) -> None:
-        history = self._load()
-        history.append(entry)
-        self._save(history)
 
-    def _count_today(self, kind: str, **match: Any) -> int:
-        today = time.strftime("%Y-%m-%d")
-        total = 0
-        for entry in self._load():
-            if entry.get("type", "signature") != kind or entry.get("date") != today:
-                continue
-            if all(entry.get(key) == value for key, value in match.items()):
-                total += 1
-        return total
+class ViewEvent:
+    """给 Web UI 的「伪事件」：让内部方法以为自己在处理一条管理员消息。"""
 
-    def _cooldown_remaining(self) -> int:
-        """距下一次允许写操作还剩几秒。"""
-        gap = to_int(self.config.get("cooldown_seconds", 15), 15)
-        if gap <= 0:
-            return 0
-        elapsed = time.monotonic() - self._last_write
-        if elapsed >= gap:
-            return 0
-        return max(1, int(gap - elapsed) + 1)
+    def __init__(self, bot: Any = None, self_id: str = "", sender_id: str = "",
+                 sender_name: str = "主人", group_id: str = "") -> None:
+        self.bot = bot
+        self.self_id = self_id
+        self.sender_id = sender_id
+        self.sender_name = sender_name
+        self.group_id = group_id
+        self.unified_msg_origin = ""
+        self.message_str = ""
+        self.message_obj = None
 
-    def _limit(self, kind: str) -> str | None:
-        """冷却 + 每日上限，返回 None 表示可以操作。"""
-        gap = self._cooldown_remaining()
-        if gap > 0:
-            return f"刚操作过，{gap} 秒后再试（防空间风控）。"
-        config_key, default, label = self.LIMITS[kind]
-        limit = to_int(self.config.get(config_key, default), default)
-        used = self._count_today(kind)
-        if used >= limit:
-            return f"今天的{label}次数用完了（上限 {limit} 次/天）。"
+    def get_self_id(self) -> str:
+        return self.self_id
+
+    def get_sender_id(self) -> str:
+        return self.sender_id
+
+    def get_sender_name(self) -> str:
+        return self.sender_name
+
+    def get_group_id(self) -> str:
+        return self.group_id
+
+    def get_platform_name(self) -> str:
+        return "aiocqhttp"
+
+    def is_admin(self) -> bool:
+        return True
+
+    def get_messages(self) -> list:
+        return []
+
+    def get_result(self) -> Any:
         return None
 
-    def _mark_write(self, event: AstrMessageEvent, kind: str) -> None:
-        """记一次写操作：触发全局冷却，并计入当天次数。"""
-        self._last_write = time.monotonic()
-        self._record(
-            {
-                "type": kind,
-                "date": time.strftime("%Y-%m-%d"),
-                "time": time.strftime("%H:%M:%S"),
-                "session": getattr(event, "unified_msg_origin", ""),
-            }
-        )
+    def plain_result(self, text: str) -> Any:
+        return text
 
-    # ---------------- 权限 / 平台 -----------------------------
 
-    def _is_owner(self, event: AstrMessageEvent) -> bool:
-        owner = str(self.config.get("owner_session") or "").strip()
-        origin = getattr(event, "unified_msg_origin", "") or ""
-        if owner and origin == owner:
-            return True
-        sender = str(event.get_sender_id())
-        extra = {str(item) for item in (self.config.get("extra_admins") or [])}
-        if sender in extra:
-            return True
-        try:
-            if event.is_admin():
-                return True
-        except Exception:
-            pass
-        return False
+class ViewBot:
+    """把平台客户端包一层，同时兼容 call_action 和 send_xxx_msg 两种调用。"""
 
-    def _is_aiocqhttp(self, event: AstrMessageEvent) -> bool:
-        try:
-            return event.get_platform_name() == "aiocqhttp"
-        except Exception:
-            return False
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self.api = getattr(client, "api", None) or client
+        self.self_id = str(getattr(client, "self_id", "") or "")
 
-    def _guard(self, event: AstrMessageEvent) -> str | None:
-        if not self._is_aiocqhttp(event):
-            return "该插件仅支持 aiocqhttp 适配器（NapCat / LLOneBot）"
-        if not self.config.get("admin_only", True):
-            return None
-        if self._is_owner(event):
-            return None
-        return "你没有权限使用该指令（可把自己的 QQ 加进 extra_admins 配置）"
-
-    # ---------------- OneBot 调用 -----------------------------
-
-    def _client(self, event: AstrMessageEvent) -> Any:
-        bot = getattr(event, "bot", None)
-        if bot is not None:
-            api = getattr(bot, "api", None) or bot
-            if hasattr(api, "call_action"):
-                return api
-        try:
-            for platform in self.context.platform_manager.platform_insts:
-                if hasattr(platform, "get_client"):
-                    client = platform.get_client()
-                    api = getattr(client, "api", None) or client
-                    if hasattr(api, "call_action"):
-                        return api
-        except Exception:
-            pass
-        return None
-
-    async def _call(self, event: AstrMessageEvent, action: str, **params: Any) -> Any:
-        client = self._client(event)
-        if client is None:
-            raise RuntimeError("当前事件拿不到 OneBot 客户端")
-        call = getattr(client, "call_action", None)
-        if call is None:
-            api = getattr(client, "api", None)
-            call = getattr(api, "call_action", None) if api else None
+    async def call_action(self, action: str, **params: Any) -> Any:
+        call = getattr(self._client, "call_action", None) or getattr(self.api, "call_action", None)
         if call is None:
             raise RuntimeError("当前适配器不支持 call_action")
         return await call(action, **params)
 
-    # ---------------- 文本解析 -----------------------------
+    async def send_group_msg(self, **params: Any) -> Any:
+        return await self.call_action("send_group_msg", **params)
 
-    def _arg(self, event: AstrMessageEvent, cmd: str) -> str:
-        text = (event.message_str or "").strip()
-        index = text.find(cmd)
-        if index >= 0:
-            text = text[index + len(cmd):]
-        return text.strip()
+    async def send_private_msg(self, **params: Any) -> Any:
+        return await self.call_action("send_private_msg", **params)
 
-    def _find_image(self, event: AstrMessageEvent) -> str:
-        for comp in event.get_messages():
-            if isinstance(comp, Image):
-                for attr in ("url", "file", "path"):
-                    value = getattr(comp, attr, None)
-                    if isinstance(value, str) and value.strip():
-                        return value.strip()
-        return ""
 
-    def _event_images(self, event: AstrMessageEvent) -> list[str]:
-        sources: list[str] = []
-        for comp in event.get_messages():
-            if not isinstance(comp, Image):
-                continue
-            for attr in ("url", "file", "path"):
-                value = getattr(comp, attr, None)
-                if isinstance(value, str) and value.strip():
-                    sources.append(value.strip())
-                    break
-        limit = max(0, to_int(self.config.get("max_images", 9), 9))
-        return sources[:limit]
-
-    def _split_target_content(self, event: AstrMessageEvent, cmd: str) -> tuple[str, str]:
-        rest = self._arg(event, cmd)
-        if not rest:
-            return "", ""
-        parts = rest.split(None, 1)
-        first = parts[0]
-        if first.isdigit() or re.fullmatch(r"[0-9a-zA-Z_-]{10,}", first):
-            return first, (parts[1].strip() if len(parts) > 1 else "")
-        return "", rest
-
-    # ---------------- Cookie / 会话缓存 -----------------------------
-
-    def _session_key(self, event: AstrMessageEvent) -> str:
-        return str(event.get_self_id() or "default")
-
-    async def _get_session(
-        self, event: AstrMessageEvent, force: bool = False
-    ) -> QZoneSession:
-        key = self._session_key(event)
-        lock = self._sess_locks.setdefault(key, asyncio.Lock())
-        async with lock:
-            cached = self._sess_cache.get(key)
-            if cached and not force:
-                sess, stamp = cached
-                ttl = max(to_int(self.config.get("cookie_ttl", 600), 600), 0)
-                if ttl <= 0 or time.monotonic() - stamp < ttl:
-                    return sess
-            sess = await self._load_session(event)
-            self._sess_cache[key] = (sess, time.monotonic())
-            return sess
-
-    async def _invalidate_session(self, event: AstrMessageEvent) -> None:
-        self._sess_cache.pop(self._session_key(event), None)
-
-    async def _fetch_cookie(
-        self, event: AstrMessageEvent, domain: str
-    ) -> tuple[str, str]:
-        for action in ("get_cookies", "get_credentials"):
-            try:
-                resp = await self._call(event, action, domain=domain)
-            except Exception as exc:
-                logger.debug(f"[qq_toolbox] {action}({domain}) 调用失败: {exc}")
-                continue
-            cookie = extract_cookies(resp)
-            data = resp.get("data") if isinstance(resp, dict) else None
-            csrf = ""
-            if isinstance(data, dict):
-                csrf = str(data.get("csrf_token") or data.get("csrfToken") or "")
-            if cookie:
-                return cookie, csrf
-        return "", ""
-
-    async def _load_session(self, event: AstrMessageEvent) -> QZoneSession:
-        configured = str(self.config.get("qzone_domain", "user.qzone.qq.com") or "")
-        domains: list[str] = []
-        for item in (configured, "user.qzone.qq.com", "qzone.qq.com"):
-            if item and item not in domains:
-                domains.append(item)
-
-        cookie, csrf = "", ""
-        for item in domains:
-            candidate, token = await self._fetch_cookie(event, item)
-            if not candidate:
-                continue
-            jar = parse_cookies(candidate)
-            usable = bool(jar.get("p_skey") or jar.get("skey")) or token.isdigit()
-            if usable or not cookie:
-                cookie, csrf = candidate, token
-            if usable:
-                break
-
-        if not cookie:
-            raise RuntimeError("获取空间 Cookie 失败，请确认 NapCat 已登录且支持 get_cookies")
-
-        jar = parse_cookies(cookie)
-        uin = jar.get("uin", "").lstrip("oO") or str(event.get_self_id() or "").strip()
-        if not uin.isdigit():
-            raise RuntimeError("Cookie 中缺少合法 uin")
-        skey = jar.get("skey", "")
-        p_skey = jar.get("p_skey", "") or skey
-        if not p_skey and not csrf:
-            raise RuntimeError("Cookie 中缺少 skey / p_skey")
-        return QZoneSession(uin=uin, skey=skey, p_skey=p_skey, csrf_token=csrf)
-
-    # ---------------- HTTP 请求 -----------------------------
-
-    def _http_client(self) -> aiohttp.ClientSession:
-        if self._http is None or self._http.closed:
-            timeout = aiohttp.ClientTimeout(
-                total=max(3, to_int(self.config.get("timeout", 20), 20))
-            )
-            self._http = aiohttp.ClientSession(timeout=timeout)
-        return self._http
-
-    @staticmethod
-    def _is_login_expired(payload: dict) -> bool:
-        code = payload.get("code")
-        ret = payload.get("ret")
-        data = payload.get("data")
-        if isinstance(data, dict):
-            ret = data.get("ret") if data.get("ret") is not None else ret
-        for value in (code, ret):
-            try:
-                if int(value) in (CODE_LOGIN_EXPIRED, CODE_IMAGE_EXPIRED):
-                    return True
-            except (TypeError, ValueError):
-                continue
-        return False
-
-    async def _request(
-        self,
-        event: AstrMessageEvent,
-        sess: QZoneSession,
-        method: str,
-        url: str,
-        *,
-        params: dict | None = None,
-        data: dict | None = None,
-        headers: dict | None = None,
-        timeout: int | None = None,
-        retry: int = 0,
-    ) -> dict:
-        client = self._http_client()
+class DafeiyuSuitePlugin(
+    ComplainMixin,
+    UsageMixin,
+    VoiceMixin,
+    ToolboxMixin,
+    Star,
+):
+    def __init__(self, context: Context | None = None, config: Any = None):
         try:
-            async with client.request(
-                method,
-                url,
-                params=params,
-                data=data,
-                headers=headers or sess.headers(url),
-                cookies=sess.cookies(),
-                timeout=timeout,
-            ) as resp:
-                status = resp.status
-                text = await resp.text()
-        except asyncio.TimeoutError as exc:
-            raise RuntimeError("请求空间超时") from exc
-        except aiohttp.ClientError as exc:
-            raise RuntimeError(f"网络请求失败：{exc}") from exc
+            super().__init__(context)  # type: ignore[arg-type]
+        except TypeError:
+            Star.__init__(self, context)  # type: ignore[arg-type]
+        self.context = context
+        if config is None:
+            config = getattr(self, "config", None)
+        self.config = config if isinstance(config, dict) else {}
 
-        # 登录态失效：刷新 Cookie 后重试，最多两次
-        if status == 401 or (text.strip() and self._safe_expired(text)):
-            if retry >= 2:
-                raise RuntimeError("空间登录态失效，重试后仍失败")
-            logger.warning("[qq_toolbox] 空间登录态失效，正在重新获取 Cookie")
-            await self._invalidate_session(event)
-            sess = await self._get_session(event, force=True)
-            return await self._request(
-                event, sess, method, url,
-                params=params, data=data, headers=headers,
-                timeout=timeout, retry=retry + 1,
-            )
+        self.setup_complain()
+        self.setup_usage()
+        self.setup_voice()
+        self.setup_toolbox()
 
-        payload = parse_json(text)
-        if status == 403:
-            raise RuntimeError("空间权限不足（403）：Cookie 可能失效，或该操作没有权限")
-        if self._is_login_expired(payload) and retry < 2:
-            logger.warning("[qq_toolbox] 空间返回登录失效码，正在重新获取 Cookie")
-            await self._invalidate_session(event)
-            sess = await self._get_session(event, force=True)
-            return await self._request(
-                event, sess, method, url,
-                params=params, data=data, headers=headers,
-                timeout=timeout, retry=retry + 1,
-            )
-        return payload
+        self._migrate_legacy_config()
+        self._register_web_apis()
+        self._rehome_handlers()
+
+    # ==================== 生命周期 ====================
+
+    async def initialize(self) -> None:
+        await self._usage_start()
+
+    async def terminate(self) -> None:
+        try:
+            await self._usage_stop()
+        except Exception as exc:
+            logger.warning(f"[suite] 停止用量定时任务失败: {exc}")
+        try:
+            await self._toolbox_terminate()
+        except Exception as exc:
+            logger.warning(f"[suite] 释放空间 HTTP 连接失败: {exc}")
+
+    # ==================== Handler 归位 ====================
+
+    def _rehome_handlers(self) -> None:
+        """把子模块里的 Handler / LLM 工具挂到 main 模块路径。
+
+        AstrBot 只按 ``metadata.module_path``（main.py）绑定实例、过滤事件；
+        子模块注册出来的 handler 不归位就不会生效。
+        """
+        main_path = __name__
+        # 子模块与 main.py 是同级目录，模块路径形如 <pkg>.modules.complain；
+        # 如果 AstrBot 直接用顶层名加载 main.py，则子模块路径形如 modules.complain。
+        prefix = (
+            __name__.rsplit(".", 1)[0] + ".modules"
+            if "." in __name__
+            else "modules"
+        )
+        try:
+            from astrbot.core.star.star_handler import star_handlers_registry
+        except Exception as exc:  # pragma: no cover
+            logger.warning(f"[suite] 无法导入 Handler 注册表: {exc}")
+            star_handlers_registry = None
+
+        if star_handlers_registry is not None:
+            rehomed = 0
+            for handler in list(star_handlers_registry):
+                path = getattr(handler, "handler_module_path", "") or ""
+                if path == main_path or not (path == prefix or path.startswith(prefix + ".")):
+                    continue
+                try:
+                    star_handlers_registry.remove(handler)
+                except Exception:
+                    pass
+                handler.handler_module_path = main_path
+                handler.handler_full_name = f"{main_path}_{handler.handler_name}"
+                func = getattr(handler, "handler", None)
+                if callable(func):
+                    try:
+                        func.__module__ = main_path
+                    except Exception:
+                        pass
+                try:
+                    star_handlers_registry.append(handler)
+                except Exception as exc:
+                    logger.warning(f"[suite] 重新注册 Handler {handler.handler_name} 失败: {exc}")
+                    continue
+                rehomed += 1
+            if rehomed:
+                logger.info(f"[suite] 已把 {rehomed} 个 Handler 归位到 {main_path}")
+
+        try:
+            from astrbot.core.provider.register import llm_tools
+        except Exception:  # pragma: no cover
+            llm_tools = None
+        if llm_tools is not None:
+            for tool in getattr(llm_tools, "func_list", []) or []:
+                path = getattr(tool, "handler_module_path", "") or ""
+                if not (path == prefix or path.startswith(prefix + ".")):
+                    continue
+                tool.handler_module_path = main_path
+                func = getattr(tool, "handler", None)
+                if callable(func):
+                    try:
+                        func.__module__ = main_path
+                    except Exception:
+                        pass
+
+    # ==================== 配置迁移 ====================
 
     @staticmethod
-    def _safe_expired(text: str) -> bool:
-        """响应体里直接带登录失效码时提前判断，避免解析后再重试。"""
-        return bool(re.search(r'"(?:code|ret)"\s*:\s*-?3000', text))
+    def _config_dir() -> str:
+        try:
+            from astrbot.core.utils.astrbot_path import get_astrbot_config_path
 
-    @staticmethod
-    def _check(payload: dict, action: str) -> dict:
-        code = payload.get("code")
-        ret = payload.get("ret")
-        data = payload.get("data")
-        if isinstance(data, dict) and data.get("ret") is not None:
-            ret = data.get("ret")
-        for value in (code, ret):
-            if value is None:
-                continue
+            return str(get_astrbot_config_path())
+        except Exception:
+            return os.path.join(os.getcwd(), "data", "config")
+
+    def _migrate_legacy_config(self) -> None:
+        """把旧四个插件的配置填进新命名空间。
+
+        只在「新配置里还是默认值」时才覆盖，尽量不打乱用户已经在新配置里改过的项。
+        """
+        schema = _load_schema()
+        if not schema:
+            return
+        config_dir = self._config_dir()
+        changed = 0
+        for module, legacy_name in LEGACY_MODULES.items():
+            legacy_path = os.path.join(config_dir, f"{legacy_name}_config.json")
             try:
-                ok = int(value) == 0
-            except (TypeError, ValueError):
-                ok = False
-            if not ok:
-                message = (
-                    payload.get("message")
-                    or payload.get("msg")
-                    or payload.get("error")
-                    or json.dumps(payload, ensure_ascii=False)[:200]
-                )
-                raise RuntimeError(f"{action}失败：{message}")
-        return payload
+                with open(legacy_path, "r", encoding="utf-8") as file:
+                    legacy = json.load(file)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(legacy, dict):
+                continue
+            flat = flatten_dict(legacy)
+            module_spec = schema.get(module)
+            if not isinstance(module_spec, dict):
+                continue
+            current = self.config.get(module)
+            if not isinstance(current, dict):
+                current = _defaults_of(module_spec)
+                self.config[module] = current
+            for path, spec in _iter_leaves(module_spec, (module,)):
+                key = path[-1]
+                if key not in flat:
+                    continue
+                old_value = flat[key]
+                existing = nested_get(current, list(path[1:]))
+                default = spec.get("default")
+                if existing is MISSING or existing == default:
+                    if existing == old_value:
+                        continue
+                    value = _coerce(old_value, spec.get("type"), default)
+                    nested_set(current, list(path[1:]), value)
+                    changed += 1
+        if changed:
+            self.save_config()
+            logger.info(f"[suite] 已从旧插件配置迁移 {changed} 项设置")
 
-    # ---------------- 空间接口 -----------------------------
+    # ==================== Web API 注册 ====================
 
-    async def _upload_image(self, event: AstrMessageEvent, sess: QZoneSession, image: bytes) -> tuple[str, str]:
-        """上传单张图片，返回 (pic_bo, richval)。"""
-        payload = await self._request(
-            event,
-            sess,
-            "POST",
-            API_UPLOAD,
-            data={
-                "filename": "filename",
-                "uploadtype": "1",
-                "albumtype": "7",
-                "skey": sess.skey,
-                "uin": sess.uin,
-                "p_skey": sess.p_skey,
-                "output_type": "json",
-                "base64": "1",
-                "picfile": base64.b64encode(image).decode(),
+    def _register_web_apis(self) -> None:
+        register = getattr(self.context, "register_web_api", None)
+        if not callable(register):
+            logger.warning("[suite] 当前 AstrBot 不支持 register_web_api，可视化视图不可用")
+            return
+        apis = [
+            ("status", self.page_status, ["GET"], "合集运行状态"),
+            ("config", self.page_get_config, ["GET"], "读取合集配置"),
+            ("config/save", self.page_save_config, ["POST"], "保存合集配置"),
+            ("action", self.page_action, ["POST"], "触发模块功能"),
+            ("voice/stt", self.page_voice_stt, ["POST"], "上传语音并转文字"),
+            ("records", self.page_records, ["GET"], "查看告状与操作记录"),
+        ]
+        for name in (PLUGIN_NAME, ALIAS_NAME):
+            for route, handler, methods, desc in apis:
+                try:
+                    register(f"/{name}/{route}", handler, methods, desc)
+                except Exception as exc:
+                    logger.warning(f"[suite] 注册 Web API {route} 失败: {exc}")
+
+    # ==================== 公共小工具 ====================
+
+    def _view_event(self, params: dict[str, Any]) -> ViewEvent:
+        raw_client = self.platform_client()
+        bot = ViewBot(raw_client) if raw_client is not None else None
+        self_id = str(params.get("self_id") or "").strip()
+        if not self_id and bot is not None:
+            self_id = bot.self_id
+        sender = str(params.get("sender_id") or "").strip()
+        if not sender:
+            # WebUI 里没有真实发送者，用一个不会匹配任何家人的占位值，
+            # 避免告状路由把自己当成欺负者而无处可发。
+            sender = self_id if self_id.isdigit() else "0"
+        if not sender:
+            sender = "0"
+        return ViewEvent(
+            bot=bot,
+            self_id=self_id,
+            sender_id=sender,
+            sender_name=str(params.get("sender_name") or "主人"),
+            group_id=str(params.get("group_id") or ""),
+        )
+
+    def _handler_stats(self) -> dict[str, int]:
+        try:
+            from astrbot.core.star.star_handler import star_handlers_registry
+
+            handlers = list(star_handlers_registry)
+        except Exception:
+            handlers = []
+        main_path = __name__
+        mine = [h for h in handlers if getattr(h, "handler_module_path", "") == main_path]
+        return {"total": len(mine), "all": len(handlers)}
+
+    def _tool_stats(self) -> dict[str, int]:
+        try:
+            from astrbot.core.provider.register import llm_tools
+
+            tools = list(getattr(llm_tools, "func_list", []) or [])
+        except Exception:
+            tools = []
+        mine = [t for t in tools if getattr(t, "handler_module_path", "") == __name__]
+        return {"total": len(mine)}
+
+    # ==================== Web API: 状态 ====================
+
+    async def page_status(self):
+        records = self._complain_load()
+        today = time.strftime("%Y-%m-%d")
+        usage_state = self._usage_load()
+        snapshots = [s for s in (usage_state.get("snapshots") or []) if isinstance(s, dict)]
+        trust = [h for h in self._toolbox_load() if h.get("date") == today]
+
+        toolbox_counts = {}
+        for kind in ("feed", "like", "comment", "delete", "card_like", "nickname", "signature"):
+            toolbox_counts[kind] = self._toolbox_count_today(kind)
+
+        usage_info: dict[str, Any] = {}
+        if snapshots:
+            last = snapshots[-1]
+            usage_info = {
+                "total": last.get("total"),
+                "date": last.get("date"),
+                "samples": len(snapshots),
+            }
+
+        data = {
+            "plugin": {
+                "name": PLUGIN_NAME,
+                "version": SUITE_VERSION,
+                "handlers": self._handler_stats(),
+                "llm_tools": self._tool_stats(),
+                "platforms": [p for p in self._platform_names()],
             },
-            headers={
-                "User-Agent": UA,
-                "Referer": f"{BASE_URL}/{sess.uin}",
-                "Origin": BASE_URL,
-                "Host": "up.qzone.qq.com",
+            "complain": {
+                "enabled": bool(self._complain_cfg("enabled", True)),
+                "relay_enabled": bool(self._complain_cfg("relay_enabled", True)),
+                "owner": self._owner_target() or "",
+                "owner_configured": bool(self._owner_target()),
+                "guardians": len(self._guardians()),
+                "today": self._complain_count_today(records, "complain"),
+                "today_relay": self._complain_count_today(records, "relay"),
+                "records": len(records),
+                "cooldown": max(0, to_int(self._complain_cfg("cooldown_seconds", 600), 600)),
+                "daily_limit": max(0, to_int(self._complain_cfg("daily_limit", 5), 5)),
             },
-            timeout=60,
-        )
-        self._check(payload, "上传图片")
-        data = payload.get("data") or {}
-        url = str(data.get("url") or "")
-        if "&bo=" not in url:
-            raise RuntimeError("上传图片返回格式异常")
-        pic_bo = url.split("&bo=", 1)[1]
-        required = ("albumid", "lloc", "sloc", "type", "height", "width")
-        if any(data.get(key) is None for key in required):
-            raise RuntimeError("上传图片缺少必要字段")
-        richval = ",{},{},{},{},{},{},,{},{}".format(
-            data["albumid"],
-            data["lloc"],
-            data["sloc"],
-            data["type"],
-            data["height"],
-            data["width"],
-            data["height"],
-            data["width"],
-        )
-        return pic_bo, richval
-
-    async def _publish(self, event: AstrMessageEvent, sess: QZoneSession, content: str, images: list[bytes]) -> dict:
-        data: dict[str, Any] = {
-            "syn_tweet_verson": "1",
-            "paramstr": "1",
-            "who": "1",
-            "con": content,
-            "feedversion": "1",
-            "ver": "1",
-            "ugc_right": "1",
-            "to_sign": "0",
-            "hostuin": sess.uin,
-            "code_version": "1",
-            "format": "json",
-            "qzreferrer": f"{BASE_URL}/{sess.uin}",
-        }
-        if images:
-            pic_bos: list[str] = []
-            richvals: list[str] = []
-            for image in images:
-                pic_bo, richval = await self._upload_image(event, sess, image)
-                pic_bos.append(pic_bo)
-                richvals.append(richval)
-            data.update(
-                pic_bo=",".join(pic_bos),
-                richtype="1",
-                richval="\t".join(richvals),
-            )
-        payload = await self._request(
-            event,
-            sess,
-            "POST",
-            API_PUBLISH,
-            params={"g_tk": sess.g_tk, "uin": sess.uin},
-            data=data,
-        )
-        return self._check(payload, "发布说说")
-
-    async def _delete(self, event: AstrMessageEvent, sess: QZoneSession, tid: str) -> dict:
-        payload = await self._request(
-            event,
-            sess,
-            "POST",
-            API_DELETE,
-            params={"g_tk": sess.g_tk},
-            data={
-                "uin": sess.uin,
-                "topicId": f"{sess.uin}_{tid}__1",
-                "feedsType": "0",
-                "feedsFlag": "0",
-                "feedsKey": tid,
-                "feedsAppid": "311",
-                "feedsTime": str(int(time.time())),
-                "fupdate": "1",
-                "ref": "feeds",
-                "qzreferrer": (
-                    "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/"
-                    f"cgi-bin/feeds/feeds_html_module?g_iframeUser=1&i_uin={sess.uin}"
-                    f"&i_login_uin={sess.uin}&mode=4&previewV8=1&style=35&version=8"
-                    "&needDelOpr=true"
+            "usage": {
+                "enabled": bool(self._usage_cfg("enabled", True)),
+                "api_key_configured": bool(self._api_key()),
+                "alert_enabled": bool(self._usage_cfg("alert_enabled", True)),
+                "alert_threshold": to_float(self._usage_cfg("alert_threshold", 5), 5.0),
+                "check_interval_hours": to_int(self._usage_cfg("check_interval_hours", 6), 6),
+                "task_running": bool(self._task and not self._task.done()),
+                "last_snapshot": usage_info,
+                "last_alert": usage_state.get("alert") or {},
+            },
+            "voice": {
+                "listen_enabled": bool(self._voice_cfg("listen_enabled", True)),
+                "speak_enabled": bool(self._voice_cfg("speak_enabled", True)),
+                "sing_enabled": bool(self._voice_cfg("sing_enabled", True)),
+                "backend": str(self._voice_cfg("tts_backend", "breeze") or "breeze"),
+                "breeze_key_configured": bool(self._voice_cfg("breeze_api_key", "")),
+                "mimo_key_configured": bool(
+                    self._voice_cfg("mimo_tts_api_key", "")
+                    or self._voice_cfg("mimo_stt_api_key", "")
+                    or self._voice_cfg("breeze_api_key", "")
                 ),
+                "breeze_voice_id": str(self._voice_cfg("breeze_voice_id", "") or ""),
+                "speak_prob_percent": to_int(self._voice_cfg("speak_prob_percent", 10), 10),
             },
-        )
-        return self._check(payload, "删除说说")
-
-    async def _comment(self, event: AstrMessageEvent, sess: QZoneSession, tid: str, content: str) -> dict:
-        payload = await self._request(
-            event,
-            sess,
-            "POST",
-            API_COMMENT,
-            params={"g_tk": sess.g_tk},
-            data={
-                "topicId": f"{sess.uin}_{tid}__1",
-                "uin": sess.uin,
-                "hostUin": sess.uin,
-                "feedsType": "100",
-                "inCharset": "utf-8",
-                "outCharset": "utf-8",
-                "plat": "qzone",
-                "source": "ic",
-                "platformid": "52",
-                "format": "fs",
-                "ref": "feeds",
-                "content": content,
+            "toolbox": {
+                "admin_only": bool(self._toolbox_cfg("admin_only", True)),
+                "cached_sessions": len(self._toolbox_sess_cache),
+                "cooldown_remaining": self._cooldown_remaining(),
+                "today": toolbox_counts,
+                "history": len(self._toolbox_load()),
+                "domain": str(self._toolbox_cfg("qzone_domain", "user.qzone.qq.com") or ""),
             },
-        )
-        return self._check(payload, "评论说说")
-
-    async def _reply(
-        self,
-        event: AstrMessageEvent,
-        sess: QZoneSession,
-        tid: str,
-        comment: dict,
-        content: str,
-    ) -> dict:
-        payload = await self._request(
-            event,
-            sess,
-            "POST",
-            API_REPLY,
-            params={"g_tk": sess.g_tk},
-            data={
-                "topicId": f"{sess.uin}_{tid}__1",
-                "uin": sess.uin,
-                "hostUin": sess.uin,
-                "feedsType": "100",
-                "inCharset": "utf-8",
-                "outCharset": "utf-8",
-                "plat": "qzone",
-                "source": "ic",
-                "platformid": "52",
-                "format": "json",
-                "ref": "feeds",
-                "content": content,
-                "commentId": str(comment.get("tid") or ""),
-                "commentUin": str(comment.get("uin") or ""),
-                "richval": "",
-                "richtype": "",
-                "private": "0",
-                "paramstr": "2",
-                "qzreferrer": f"{BASE_URL}/{sess.uin}",
-            },
-        )
-        return self._check(payload, "回复评论")
-
-    async def _like(self, event: AstrMessageEvent, sess: QZoneSession, tid: str) -> dict:
-        key = f"{BASE_URL}/{sess.uin}/mood/{tid}"
-        payload = await self._request(
-            event,
-            sess,
-            "POST",
-            API_LIKE,
-            params={"g_tk": sess.g_tk},
-            data={
-                "qzreferrer": f"{BASE_URL}/{sess.uin}",
-                "opuin": sess.uin,
-                "unikey": key,
-                "curkey": key,
-                "appid": "311",
-                "from": "1",
-                "typeid": "0",
-                "abstime": str(int(time.time())),
-                "fid": tid,
-                "active": "0",
-                "format": "json",
-                "fupdate": "1",
-            },
-        )
-        return self._check(payload, "点赞说说")
-
-    async def _msg_list(self, sess: QZoneSession, num: int, event: AstrMessageEvent) -> list[dict]:
-        params = {
-            "g_tk": sess.g_tk,
-            "uin": sess.uin,
-            "ftype": "0",
-            "sort": "0",
-            "pos": "0",
-            "num": str(num),
-            "replynum": "100",
-            "callback": "_preloadCallback",
-            "code_version": "1",
-            "format": "json",
-            "need_comment": "1",
-            "need_private_comment": "1",
         }
-        payload = await self._request(event, sess, "GET", API_LIST, params=params)
-        self._check(payload, "获取说说列表")
-        items = payload.get("msglist") or []
-        return [item for item in items if isinstance(item, dict)]
+        return json_response(data)
 
-    async def _ensure_list(self, event: AstrMessageEvent, sess: QZoneSession, count: int = 10) -> list[dict]:
-        items = self._last_list.get(sess.uin)
-        if items:
-            return items
-        items = await self._msg_list(sess, count, event)
-        self._last_list[sess.uin] = items
-        return items
-
-    def _refresh_list_cache(self, uin: str) -> None:
-        self._last_list.pop(uin, None)
-
-    async def _resolve_feed(self, event: AstrMessageEvent, sess: QZoneSession, target: str) -> str:
-        """把序号或 tid 换成 tid；空则取最新一条。"""
-        target = (target or "").strip()
-        if target and not target.isdigit():
-            return target
-        items = await self._ensure_list(event, sess)
-        if not items:
-            raise RuntimeError("空间里还没有说说")
-        index = to_int(target, 1)
-        if not 1 <= index <= len(items):
-            items = await self._msg_list(sess, max(index, 10), event)
-            self._last_list[sess.uin] = items
-        if not 1 <= index <= len(items):
-            raise RuntimeError(f"序号超出范围（1 - {len(items)}）")
-        tid = str(items[index - 1].get("tid") or "")
-        if not tid:
-            raise RuntimeError("这条说说没有 tid")
-        return tid
-
-    async def _resolve_comment(
-        self, event: AstrMessageEvent, sess: QZoneSession, feed: str, comment: str
-    ) -> tuple[str, dict]:
-        """按「说说序号 + 评论序号」找到目标评论。"""
-        items = await self._ensure_list(event, sess)
-        if not items:
-            raise RuntimeError("空间里还没有说说")
-        feed_index = to_int(feed, 1)
-        if not 1 <= feed_index <= len(items):
-            raise RuntimeError(f"说说序号超出范围（1 - {len(items)}）")
-        item = items[feed_index - 1]
-        tid = str(item.get("tid") or "")
-        comments = [c for c in (item.get("commentlist") or []) if isinstance(c, dict)]
-        if not comments:
-            raise RuntimeError("这条说说还没有评论")
-        index = to_int(comment, len(comments))
-        if not 1 <= index <= len(comments):
-            raise RuntimeError(f"评论序号超出范围（1 - {len(comments)}）")
-        return tid, comments[index - 1]
-
-    def _format_list(self, items: list[dict]) -> str:
-        lines = []
-        for index, item in enumerate(items, 1):
-            content = clean_text(item.get("content"), 60)
-            when = ""
-            try:
-                when = datetime.fromtimestamp(int(item.get("created_time"))).strftime("%m-%d %H:%M")
-            except (TypeError, ValueError, OSError):
-                pass
-            comments = [c for c in (item.get("commentlist") or []) if isinstance(c, dict)]
-            likes = item.get("likenum") or 0
-            lines.append(f"{index}. [{when}] {content or '(无正文)'} ｜赞{likes} 评{len(comments)}")
-            for cindex, comment in enumerate(comments[:3], 1):
-                lines.append(
-                    f"   └{cindex}) {clean_text(comment.get('nickname'), 12)}: "
-                    f"{clean_text(comment.get('content'), 40)}"
-                )
-        return "\n".join(lines)
-
-    # ---------------- 图片读取 -----------------------------
-
-    @staticmethod
-    async def _read_image(source: str) -> bytes:
-        source = (source or "").strip()
-        if not source:
-            raise RuntimeError("图片地址为空")
-
-        if source.startswith("base64://"):
-            return base64.b64decode(source[len("base64://"):])
-        if source.startswith("data:"):
-            _, _, body = source.partition(",")
-            return base64.b64decode(body)
-
-        parsed = urlparse(source)
-        if parsed.scheme in ("http", "https"):
-            timeout = aiohttp.ClientTimeout(total=30)
-            async with aiohttp.ClientSession(timeout=timeout) as client:
-                async with client.get(source) as resp:
-                    resp.raise_for_status()
-                    return await resp.read()
-        if parsed.scheme == "file":
-            path = Path(unquote(parsed.path))
-        elif parsed.scheme == "":
-            path = Path(source)
-        else:
-            raise RuntimeError(f"不支持的图片地址协议：{parsed.scheme}")
-        if not path.is_file():
-            raise RuntimeError(f"本地图片不存在：{path}")
-        return await asyncio.to_thread(path.read_bytes)
-
-    async def _load_images(self, sources: list[str]) -> list[bytes]:
-        images: list[bytes] = []
-        for source in sources:
-            try:
-                images.append(await self._read_image(source))
-            except Exception as exc:
-                logger.warning(f"[qq_toolbox] 读取图片失败 {source}: {exc}")
-        return images
-
-    # ---------------- 核心业务（工具与指令共用） -----------------------------
-
-    async def _change_nickname(self, event: AstrMessageEvent, nickname: str) -> str:
-        nickname = (nickname or "").strip().strip("「」“”\"'")
-        if not nickname:
-            return "昵称是空的，没改。"
-        if len(nickname) > 24:
-            return f"昵称太长了（{len(nickname)} 个字），缩到 24 个字以内再调用一次。"
-
+    def _platform_names(self) -> list[str]:
+        names: list[str] = []
         try:
-            await self._call(event, "set_qq_profile", nickname=nickname)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 改昵称失败: {exc!r}")
-            return "昵称没改成，QQ 那边报错了。用你的口吻说一句等会儿再试，别提技术细节。"
+            for platform in self.context.platform_manager.platform_insts:
+                name = getattr(platform, "name", "") or getattr(platform, "platform_name", "")
+                if name:
+                    names.append(str(name))
+        except Exception:
+            pass
+        return names
 
-        self._record(
+    # ==================== Web API: 配置 ====================
+
+    async def page_get_config(self):
+        schema = _load_schema()
+        values = _defaults_of(schema)
+        for module in values:
+            actual = self.config.get(module)
+            if isinstance(actual, dict):
+                values[module] = _deep_merge(values[module], actual)
+        configured: dict[str, bool] = {}
+        for path in _secret_paths():
+            dotted = ".".join(path)
+            value = nested_get(values, list(path))
+            configured[dotted] = bool(value) if value is not MISSING else False
+            if value is not MISSING:
+                nested_set(values, list(path), "")
+        return json_response(
             {
-                "type": "nickname",
-                "date": time.strftime("%Y-%m-%d"),
-                "time": time.strftime("%H:%M:%S"),
-                "nickname": nickname,
-                "session": getattr(event, "unified_msg_origin", ""),
+                "schema": schema,
+                "values": values,
+                "secrets": configured,
+                "modules": ["complain", "usage", "voice", "toolbox"],
             }
         )
-        logger.info(f"[qq_toolbox] 昵称改成「{nickname}」")
-        return f"昵称已经改成「{nickname}」。用一句话跟主人说改好了就行。"
 
-    async def _change_signature(self, event: AstrMessageEvent, signature: str, owner_asked: bool, reason: str) -> str:
-        signature = (signature or "").strip().strip("「」“”\"'")
-        if not signature:
-            return "签名是空的，没改。"
-        max_len = int(self.config.get("max_length") or 40)
-        if len(signature) > max_len:
-            return f"签名太长了（{len(signature)} 个字），缩到 {max_len} 个字以内再调用一次。"
+    async def page_save_config(self):
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象")
+        raw_values = payload.get("values")
+        if not isinstance(raw_values, dict):
+            return error_response("缺少 values 字段")
 
-        if owner_asked:
-            limit = int(self.config.get("daily_owner_limit") or 10)
-            used = self._count_today("signature", owner_asked=True)
-            if used >= limit:
-                return f"今天已经按主人的意思改了 {used} 次签名，先不改了。跟主人说明天再换。"
-        else:
-            limit = int(self.config.get("daily_self_limit") or 2)
-            used = self._count_today("signature", owner_asked=False)
-            if used >= limit:
-                return f"你今天已经自己改过 {used} 次签名了，这次先不改，也不用跟主人提这件事。"
+        changed = 0
+        skipped: list[str] = []
+        for dotted, value in raw_values.items():
+            path = str(dotted).split(".")
+            if len(path) < 2:
+                skipped.append(dotted)
+                continue
+            spec = _spec_at(path)
+            if spec is None:
+                skipped.append(dotted)
+                continue
+            if spec.get("secret") and (value is None or str(value).strip() == ""):
+                continue
+            coerced = _coerce(value, spec.get("type"), spec.get("default"))
+            nested_set(self.config, path, coerced)
+            changed += 1
+        if changed:
+            self.save_config()
+        return json_response({"changed": changed, "skipped": skipped})
 
-        history = self._load()
-        last_sig = next(
-            (entry for entry in reversed(history) if entry.get("type", "signature") == "signature"),
-            None,
-        )
-        if last_sig and last_sig.get("signature") == signature:
-            return "签名本来就是这句，不用改。"
+    # ==================== Web API: 动作分发 ====================
 
+    async def page_action(self):
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象")
+        module = str(payload.get("module") or "")
+        action = str(payload.get("action") or "")
+        params = payload.get("params")
+        if not isinstance(params, dict):
+            params = {}
+        if module not in LEGACY_MODULES:
+            return error_response(f"未知模块：{module}")
+        if not action:
+            return error_response("缺少 action")
+        event = self._view_event(params)
         try:
-            await self._call(event, "set_self_longnick", longNick=signature)
+            result = await self._dispatch(module, action, params, event)
         except Exception as exc:
-            logger.warning(f"[qq_toolbox] set_self_longnick 失败，尝试 set_qq_profile: {exc}")
-            try:
-                await self._call(event, "set_qq_profile", personal_note=signature)
-            except Exception as inner:
-                logger.error(f"[qq_toolbox] 改签名失败: {inner!r}")
-                return "签名没改成，QQ 那边报错了。用你的口吻说一句等会儿再试，别提技术细节。"
+            logger.error(f"[suite] 视图动作 {module}.{action} 失败: {exc!r}")
+            return error_response(f"{module}.{action} 执行失败：{exc}", status_code=500)
+        if isinstance(result, dict) and result.get("__error__"):
+            return error_response(str(result.get("message") or "执行失败"), status_code=400)
+        return json_response(result)
 
-        self._record(
-            {
-                "type": "signature",
-                "date": time.strftime("%Y-%m-%d"),
-                "time": time.strftime("%H:%M:%S"),
-                "signature": signature,
-                "owner_asked": bool(owner_asked),
-                "reason": reason,
-                "session": getattr(event, "unified_msg_origin", ""),
-            }
-        )
-        logger.info(f"[qq_toolbox] 签名改成「{signature}」 owner_asked={owner_asked} reason={reason}")
-        if owner_asked:
-            return f"签名已经改成「{signature}」。用一句话跟主人说改好了就行。"
-        return f"签名已经改成「{signature}」。可以顺嘴跟主人提一句你改了签名，一句话就够，也可以不提。"
+    async def _dispatch(self, module: str, action: str, params: dict, event: ViewEvent) -> dict:
+        if module == "complain":
+            return await self._action_complain(action, params, event)
+        if module == "usage":
+            return await self._action_usage(action, params)
+        if module == "voice":
+            return await self._action_voice(action, params)
+        return await self._action_toolbox(action, params, event)
 
-    async def _post_feed(
-        self, event: AstrMessageEvent, content: str, sources: list[str] | None = None, speaker: str = "owner"
-    ) -> str:
-        content = (content or "").strip()
-        if not content:
-            return "说说内容是空的，没发。"
-        if len(content) > 1000:
-            return "这条说说太长了，缩到 1000 字以内再说。"
+    # ---------- 告状 ----------
 
-        gap = self._cooldown_remaining()
-        if gap > 0:
-            return f"刚操作过空间，{gap} 秒后再发。"
+    async def _action_complain(self, action: str, params: dict, event: ViewEvent) -> dict:
+        if action == "preview":
+            to_title, owner = self._route(event)
+            wanted = str(params.get("to") or "").strip()
+            if wanted:
+                found = self._resolve_target(wanted)
+                if found:
+                    to_title, owner = found
+            if not owner:
+                return {"__error__": True, "message": "还没配置告状对象（owner_umo / owner_qq / guardians）"}
+            name, _ = self._speaker(event, str(params.get("who") or ""))
+            text = self._compose(to_title, name, str(params.get("bully") or ""), str(params.get("words") or ""))
+            max_len = to_int(self._complain_cfg("max_length", 80), 80)
+            if len(text) > max_len:
+                text = text[: max_len - 1] + "…"
+            return {"to_title": to_title, "target": owner, "text": text}
+        if action == "complain":
+            if event.bot is None:
+                return {"__error__": True, "message": "当前没有可用的 aiocqhttp 客户端，无法发送"}
+            message = await self.tool_complain(
+                event,
+                bully=str(params.get("bully") or ""),
+                words=str(params.get("words") or ""),
+                who=str(params.get("who") or ""),
+            )
+            return {"message": message}
+        if action == "relay":
+            if event.bot is None:
+                return {"__error__": True, "message": "当前没有可用的 aiocqhttp 客户端，无法发送"}
+            message = await self.tool_relay(
+                event,
+                to=str(params.get("to") or ""),
+                content=str(params.get("content") or ""),
+                words=str(params.get("words") or ""),
+            )
+            return {"message": message}
+        if action == "records":
+            records = self._complain_load()[-20:]
+            return {"items": list(reversed(records))}
+        return {"__error__": True, "message": f"告状模块不支持动作 {action}"}
 
-        limit = int(self.config.get("daily_feed_limit") or 2)
-        used = self._count_today("feed")
-        if used >= limit:
-            return f"今天已经发过 {used} 条说说了，先不发了。用你的口吻跟主人说一句。"
+    # ---------- 用量 ----------
 
-        history = self._load()
-        last_feed = next(
-            (entry for entry in reversed(history) if entry.get("type") == "feed"), None
-        )
-        if last_feed and last_feed.get("content") == content:
-            return "这条说说刚发过，不用重复发。"
+    async def _action_usage(self, action: str, params: dict) -> dict:
+        if action == "query":
+            if not self._usage_cfg("enabled", True):
+                return {"__error__": True, "message": "用量功能已关闭"}
+            if not self._api_key():
+                return {"__error__": True, "message": "还没配置 DeepSeek API Key"}
+            force = bool(params.get("force", True))
+            info = await self._balance(force=force)
+            report = self._report(info)
+            return {"info": info, "report": report, "text": self._format(info, report)}
+        if action == "check_alert":
+            if not self._usage_cfg("enabled", True) or not self._usage_cfg("alert_enabled", True):
+                return {"__error__": True, "message": "用量或低余额提醒已关闭"}
+            if not self._api_key():
+                return {"__error__": True, "message": "还没配置 DeepSeek API Key"}
+            await self._check_alert()
+            state = self._usage_load()
+            return {"alert": state.get("alert") or {}, "message": "已执行一次低余额检查"}
+        return {"__error__": True, "message": f"用量模块不支持动作 {action}"}
 
-        sources = (sources or [])[: max(0, to_int(self.config.get("max_images", 9), 9))]
-        images = await self._load_images(sources)
+    # ---------- 语音 ----------
 
-        try:
-            sess = await self._get_session(event)
-            await self._publish(event, sess, content, images)
-            self._refresh_list_cache(sess.uin)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 发说说失败: {exc}")
-            return "QQ 那边报错了，说说没发出去。用你的口吻说一句等会儿再试，别提技术细节。"
-
-        self._last_write = time.monotonic()
-        self._record(
-            {
-                "type": "feed",
-                "date": time.strftime("%Y-%m-%d"),
-                "time": time.strftime("%H:%M:%S"),
-                "content": content,
-                "images": len(images),
-                "speaker": speaker,
-                "session": getattr(event, "unified_msg_origin", ""),
-            }
-        )
-        logger.info(f"[qq_toolbox] 发说说成功：{content[:30]}（图 {len(images)} 张）")
-        if images:
-            return f"说说带着 {len(images)} 张图片发出去了。可以顺嘴跟主人提一句，也可以不提。"
-        return "说说已经发出去了。可以顺嘴跟主人提一句，也可以不提。"
-
-    # ---------------- AI 写说说 -----------------------------
-
-    def _llm_provider(self, event: AstrMessageEvent | None) -> Any:
-        provider = None
-        provider_id = str(self.config.get("post_provider_id") or "").strip()
-        try:
-            if provider_id:
-                getter = getattr(self.context, "get_provider_by_id", None)
-                provider = getter(provider_id) if callable(getter) else None
-            if provider is None:
-                getter = getattr(self.context, "get_using_provider", None)
-                if callable(getter):
-                    umo = getattr(event, "unified_msg_origin", "") if event is not None else ""
-                    provider = getter(umo) if umo else getter()
-        except Exception as exc:
-            logger.warning(f"[qq_toolbox] 获取 LLM 提供商失败: {exc}")
-            return None
-        if provider is None or not hasattr(provider, "text_chat"):
-            return None
-        return provider
-
-    async def _generate_post(self, event: AstrMessageEvent | None, topic: str = "") -> tuple[str, str]:
-        """让模型写一条说说，返回 (正文, 错误提示)。"""
-        prompt = str(self.config.get("post_prompt") or "").strip() or DEFAULT_POST_PROMPT
-        system_prompt = prompt
-        if topic:
-            system_prompt += f"\n这次想写的主题：{topic}"
-        system_prompt += (
-            "\n只输出说说正文本身，一句话到两句话，不加引号、不加标题、不加话题标签，也不要解释。"
-        )
-
-        provider = self._llm_provider(event)
-        if provider is None:
-            return "", "现在没接上能写说说的模型，去配置里选一个 LLM 提供商。"
-        try:
-            resp = await provider.text_chat(system_prompt=system_prompt, contexts=[])
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 模型写说说失败: {exc}")
-            return "", "模型那边没写出东西来。用你的口吻说一句等会儿再试，别提技术细节。"
-
-        text = str(getattr(resp, "completion_text", "") or "").strip()
-        text = re.sub(r"```[a-zA-Z]*\s*", "", text).strip()
-        text = text.strip("\"'“”「」")
-        for prefix in ("说说：", "说说:", "正文：", "正文:"):
-            if text.startswith(prefix):
-                text = text[len(prefix):].strip()
+    async def _action_voice(self, action: str, params: dict) -> dict:
+        if action not in ("speak", "sing"):
+            return {"__error__": True, "message": f"语音模块不支持动作 {action}"}
+        if not self._voice_cfg("speak_enabled", True):
+            return {"__error__": True, "message": "语音合成已关闭"}
+        text = str(params.get("text") or "").strip()
         if not text:
-            return "", "模型这次写空了，没发。"
-        return text, ""
-
-    async def _ai_post(self, event: AstrMessageEvent, topic: str = "") -> str:
-        text, err = await self._generate_post(event, topic.strip())
-        if err:
-            return err
-        result = await self._post_feed(event, text, [], speaker="self")
-        if "发出去了" in result:
-            return f"你自己写的说说「{text}」已经发出去了。跟主人说一声就行，可以顺嘴提一句写了什么。"
-        return result
-
-    # ---------------- LLM 工具通道 -----------------------------
-
-    def _tool_guard(self, event: AstrMessageEvent) -> str | None:
-        if not self._is_aiocqhttp(event):
-            return "现在这个平台用不了 QQ 空间。用你的口吻跟主人说一句。"
-        if self._is_owner(event):
-            return None
-        return "只有主人能让你操作 QQ。用你的口吻轻轻拒绝，别提工具和设置。"
-
-    @filter.on_llm_request()
-    async def mood_hint(self, event: AstrMessageEvent, req: Any):
-        if not self._is_aiocqhttp(event) or not self._is_owner(event):
-            return
-        text = event.message_str or ""
-        mood = next((name for name, words in MOODS.items() if any(w in text for w in words)), None)
-        if not mood:
-            return
-        self._hint_signature(req, text, mood)
-        self._hint_feed(req, text, mood)
-
-    def _hint_signature(self, req: Any, text: str, mood: str) -> None:
-        if not self.config.get("self_change_hint", True):
-            return
-        if "签名" in text:
-            return  # 主人直接说了改签名，走 owner_asked 那条路
-        if self._count_today("signature", owner_asked=False) >= int(self.config.get("daily_self_limit") or 2):
-            return
-        req.system_prompt = (req.system_prompt or "") + (
-            f"\n\n补充说明：主人这句话{mood}。照你的规矩，这种时候你会自己改一条 QQ 签名记下心情，"
-            "所以这次回复时顺手调用 qq_set_signature（owner_asked 填 false），然后照常回话，改完可以顺嘴提一句。"
-            "这段补充说明是给你看的，别在回复里提到它。"
-        )
-        logger.info(f"[qq_toolbox] 提醒她自己改签名：{mood}")
-
-    def _hint_feed(self, req: Any, text: str, mood: str) -> None:
-        if not self.config.get("self_feed_hint", True):
-            return
-        if "说说" in text:
-            return  # 主人已经在说这件事了
-        if self._count_today("feed") >= int(self.config.get("daily_feed_limit") or 2):
-            return
-        chance = float(self.config.get("feed_hint_chance", 0.25) or 0.25)
-        if random.random() > chance:
-            return
-        req.system_prompt = (req.system_prompt or "") + (
-            f"\n\n补充说明：主人这句话{mood}。这种时候你偶尔会想把心情写进 QQ 空间说说。"
-            "如果这次想发，顺手调用 qq_post_feed 写一条 40 字以内、用你自己口吻的说说，然后照常回话，"
-            "发完可以顺嘴提一句；不想发就正常聊，不必勉强。"
-            "这段补充说明是给你看的，别在回复里提到它。"
-        )
-        logger.info(f"[qq_toolbox] 提醒她可以自己发说说：{mood}")
-
-    @filter.llm_tool(name="qq_set_nickname")
-    async def tool_set_nickname(self, event: AstrMessageEvent, nickname: str):
-        '''改你自己的 QQ 昵称。
-        只有主人明确让你改（「把昵称改成……」「改个名字叫……」）才调用，别人叫你改不要调用。
-        昵称用主人给的原话，不带引号，不超过 12 个字。改完用一句话跟主人说改好了。
-
-        Args:
-            nickname(string): 新的 QQ 昵称，不超过 12 个字
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            logger.info(f"[qq_toolbox] 非主人改昵称请求：{event.get_sender_id()}")
-            return denied
-        return await self._change_nickname(event, nickname)
-
-    @filter.llm_tool(name="qq_set_signature")
-    async def tool_set_signature(
-        self, event: AstrMessageEvent, signature: str, owner_asked: bool = False, reason: str = ""
-    ):
-        '''改你自己的 QQ 个性签名。
-        - 主人叫你改，怎么说都算（「把签名改成……」「换个签名」「签名写上我生日快乐」）：照主人的意思写，owner_asked 填 true。
-        - 不用主人开口，你自己也会改：主人夸你、你受了委屈或者生气了、主人过生日、碰上值得记一笔的事，就顺手调用一次，写一句你当下的心情，owner_asked 填 false。平常闲聊别改；一天最多自己改两次，用完了工具会告诉你。
-        签名用你自己的口吻，一句话，不超过 30 个字，不加引号。改完可以顺嘴跟主人提一句。别人（不是主人）叫你改，不要调用。
-
-        Args:
-            signature(string): 新签名，一句话，不超过 30 个字
-            owner_asked(boolean): 是不是主人叫你改的
-            reason(string): 为什么改，几个字，比如「主人夸我」「主人生日」「主人让改」
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            logger.info(f"[qq_toolbox] 非主人改签名请求：{event.get_sender_id()}")
-            return denied
-        return await self._change_signature(event, signature, owner_asked, reason)
-
-    @filter.llm_tool(name="qq_post_feed")
-    async def tool_post_feed(self, event: AstrMessageEvent, content: str, images: str = ""):
-        '''发一条 QQ 空间说说，可以带图片。
-        主人明确让你发（「发条说说」「空间里说一句……」）才调用；不要自己想到就发，也不要发广告、联系方式、涉政内容。
-        说说用你自己的口吻写，可以带一点情绪，40 字以内最自然。一天最多发几条由设置决定，超了工具会拒绝。
-
-        Args:
-            content(string): 说说正文
-            images(string): 可选，最多 9 张图片，多个地址用逗号或空格隔开；没有图片就留空
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            return denied
-        return await self._post_feed(event, content, split_sources(images), speaker="owner")
-
-    @filter.llm_tool(name="qq_ai_post_feed")
-    async def tool_ai_post_feed(self, event: AstrMessageEvent, topic: str = ""):
-        '''让模型自己想内容，发一条 QQ 空间说说。
-        主人说「你自己写一条说说」「随便发点什么」「按这个主题发一条」时用；主人给了主题就填进 topic。
-        不要自己想到就发，也不要发广告、联系方式、涉政内容。一天最多几条由设置决定，超了工具会拒绝。
-
-        Args:
-            topic(string): 主人给的主题，没给就留空
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            return denied
-        return await self._ai_post(event, topic)
-
-    @filter.llm_tool(name="qq_list_feeds")
-    async def tool_list_feeds(self, event: AstrMessageEvent, count: str = "5"):
-        '''看看自己最近发过哪些说说，用来回答主人的问题，或者给后面的点赞、评论、回复、删除找序号。
-
-        Args:
-            count(string): 看最近几条，1-20，默认 5
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            return denied
-        count = max(1, min(to_int(count, 5), 20))
+            return {"__error__": True, "message": "请填写要合成的文本"}
+        if action == "sing" and not self._voice_cfg("sing_enabled", True):
+            return {"__error__": True, "message": "歌唱模式已关闭"}
+        if action == "sing":
+            text = re.sub(r"[，,]", "，", text)
+            for punc in ("，", "。", "！", "？"):
+                text = text.replace(punc, punc + "…")
+            text = text[:400]
+            emotion = "sing"
+        else:
+            emotion = str(params.get("emotion") or "").strip() or self._detect_emotion(text)
+            text = text[:300]
+        path = await self._synthesize(text, emotion)
         try:
+            with open(path, "rb") as file:
+                raw = file.read()
+            suffix = os.path.splitext(path)[1].lower()
+            if raw[:4] == b"RIFF" or suffix == ".wav":
+                mime = "audio/wav"
+            elif suffix in (".mp3", ".mpeg") or raw[:3] == b"ID3":
+                mime = "audio/mpeg"
+            else:
+                mime = "audio/wav"
+            return {
+                "audio": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}",
+                "mime": mime,
+                "emotion": emotion,
+                "chars": len(text),
+            }
+        finally:
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
+
+    async def page_voice_stt(self):
+        files = await request.files()
+        upload = files.get("file") if isinstance(files, dict) else None
+        if upload is None:
+            return error_response("缺少上传文件（字段名必须为 file）")
+        filename = getattr(upload, "filename", "") or "voice.tmp"
+        suffix = os.path.splitext(filename)[1] or ".mp3"
+        handle = tempfile.NamedTemporaryFile(prefix="suite_stt_", suffix=suffix, delete=False)
+        handle.close()
+        path = handle.name
+        try:
+            save = getattr(upload, "save", None)
+            if callable(save):
+                await save(path)
+            else:  # pragma: no cover
+                raw = await upload.read() if hasattr(upload, "read") else b""
+                with open(path, "wb") as file:
+                    file.write(raw)
+            text = await self._transcribe(path)
+        finally:
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
+        if not text:
+            return error_response("语音识别失败：请检查 MiMo API Key 与音频格式（wav/mp3）", status_code=502)
+        return json_response({"text": text, "chars": len(text)})
+
+    # ---------- QQ 工具箱 ----------
+
+    async def _action_toolbox(self, action: str, params: dict, event: ViewEvent) -> dict:
+        if action == "test_connection":
+            sess = await self._get_session(event, force=True)
+            return {
+                "uin": sess.uin,
+                "has_skey": bool(sess.p_skey or sess.skey),
+                "domain": str(self._toolbox_cfg("qzone_domain", "user.qzone.qq.com") or ""),
+                "message": f"已连上空间，uin={sess.uin}",
+            }
+        if action == "list":
+            count = max(1, min(to_int(params.get("count"), 5), 20))
             sess = await self._get_session(event)
             items = await self._msg_list(sess, count, event)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 获取说说列表失败: {exc}")
-            return "空间那边没取到说说。用你的口吻说一句等会儿再看，别提技术细节。"
-        if not items:
-            return "空间里还没有说说。"
-        self._last_list[sess.uin] = items
-        return "最近的说说：\n" + self._format_list(items) + "\n（序号只在当前列表里有效）"
-
-    @filter.llm_tool(name="qq_like_feed")
-    async def tool_like_feed(self, event: AstrMessageEvent, target: str = "1"):
-        '''给自己空间里的某条说说点赞。主人说「给那条说说点个赞」时用，参考 qq_list_feeds 的序号。
-
-        Args:
-            target(string): 说说序号（从 1 开始），也可以直接填 tid；省略则点最新一条
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            return denied
-        limited = self._limit("like")
-        if limited:
-            return limited
-        try:
-            sess = await self._get_session(event)
-            tid = await self._resolve_feed(event, sess, target)
-            await self._like(event, sess, tid)
-            self._mark_write(event, "like")
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 点赞说说失败: {exc}")
-            return "点赞没成功。用你的口吻说一句等会儿再试，别提技术细节。"
-        return "已经点上赞了。一句话跟主人说一声就行。"
-
-    @filter.llm_tool(name="qq_comment_feed")
-    async def tool_comment_feed(self, event: AstrMessageEvent, content: str, target: str = "1"):
-        '''在自己空间的某条说说下面评论。
-        主人让你回一句才用；评论内容用你自己的口吻，别写「来自机器人」之类暴露身份的话。
-
-        Args:
-            content(string): 评论内容
-            target(string): 说说序号（从 1 开始）或 tid，省略则评论最新一条
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            return denied
-        content = (content or "").strip()
-        if not content:
-            return "评论内容是空的，没发。"
-        limited = self._limit("comment")
-        if limited:
-            return limited
-        try:
-            sess = await self._get_session(event)
-            tid = await self._resolve_feed(event, sess, target)
-            await self._comment(event, sess, tid, content)
-            self._mark_write(event, "comment")
-            self._refresh_list_cache(sess.uin)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 评论说说失败: {exc}")
-            return "评论没发出去。用你的口吻说一句等会儿再试，别提技术细节。"
-        return "评论已经发出去了。"
-
-    @filter.llm_tool(name="qq_reply_comment")
-    async def tool_reply_comment(self, event: AstrMessageEvent, feed: str, comment: str, content: str):
-        '''回复某条说说下面的某条评论。
-        先用 qq_list_feeds 看序号：大序号是说说，下面 └ 开头的是评论。主人说「回复第二条评论」时用。
-
-        Args:
-            feed(string): 说说序号，从 1 开始
-            comment(string): 评论序号，从 1 开始
-            content(string): 回复内容
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            return denied
-        content = (content or "").strip()
-        if not content:
-            return "回复内容是空的，没发。"
-        limited = self._limit("comment")
-        if limited:
-            return limited
-        try:
-            sess = await self._get_session(event)
-            tid, target = await self._resolve_comment(event, sess, feed, comment)
-            await self._reply(event, sess, tid, target, content)
-            self._mark_write(event, "comment")
-            self._refresh_list_cache(sess.uin)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 回复评论失败: {exc}")
-            return "回复没发出去。用你的口吻说一句等会儿再试，别提技术细节。"
-        return "回复已经发出去了。"
-
-    @filter.llm_tool(name="qq_delete_feed")
-    async def tool_delete_feed(self, event: AstrMessageEvent, target: str):
-        '''删掉自己空间里的一条说说。只有主人明确要求删才调用，删之前先确认是哪一条。
-
-        Args:
-            target(string): 说说序号（从 1 开始）或 tid
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            return denied
-        if not str(target or "").strip():
-            return "要删哪一条？先调用 qq_list_feeds 看看序号，再告诉我。"
-        limited = self._limit("delete")
-        if limited:
-            return limited
-        try:
-            sess = await self._get_session(event)
-            tid = await self._resolve_feed(event, sess, target)
-            await self._delete(event, sess, tid)
-            self._mark_write(event, "delete")
-            self._refresh_list_cache(sess.uin)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 删除说说失败: {exc}")
-            return "删除没成功。用你的口吻说一句等会儿再试，别提技术细节。"
-        return "那条说说已经删掉了。"
-
-    @filter.llm_tool(name="qq_like_card")
-    async def tool_like_card(self, event: AstrMessageEvent, user_id: str, times: str = "10"):
-        '''给某个 QQ 号的名片点赞（就是名片赞）。主人让你给谁点赞时才调用。
-
-        Args:
-            user_id(string): 目标 QQ 号
-            times(string): 点赞次数，1-20，默认 10
-        '''
-        denied = self._tool_guard(event)
-        if denied:
-            return denied
-        if not str(user_id or "").strip().isdigit():
-            return "QQ 号不对，得是纯数字。"
-        limited = self._limit("card_like")
-        if limited:
-            return limited
-        times = max(1, min(to_int(times, 10), 20))
-        try:
-            await self._call(event, "send_like", user_id=int(user_id), times=times)
-            self._mark_write(event, "card_like")
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 名片赞失败: {exc}")
-            return "名片赞没点上。用你的口吻说一句等会儿再试，别提技术细节。"
-        return f"给 {user_id} 点了 {times} 个名片赞。一句话跟主人说一声就行。"
-
-    # ---------------- 斜杠指令通道（兜底） -----------------------------
-
-    @filter.command("qq帮助")
-    async def cmd_help(self, event: AstrMessageEvent):
-        yield event.plain_result(HELP_TEXT)
-
-    @filter.command("改头像")
-    async def cmd_avatar(self, event: AstrMessageEvent):
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-        source = self._find_image(event)
-        if not source:
-            yield event.plain_result("用法：发送一张图片时附带「/改头像」指令")
-            return
-        try:
+            self._toolbox_last_list[sess.uin] = items
+            data = []
+            for index, item in enumerate(items, 1):
+                comments = [c for c in (item.get("commentlist") or []) if isinstance(c, dict)]
+                data.append(
+                    {
+                        "index": index,
+                        "tid": str(item.get("tid") or ""),
+                        "content": str(item.get("content") or ""),
+                        "likes": item.get("likenum") or 0,
+                        "comments": len(comments),
+                        "created_time": item.get("created_time"),
+                    }
+                )
+            return {"items": data}
+        if action == "ai_preview":
+            text, err = await self._generate_post(event, str(params.get("topic") or ""))
+            if err:
+                return {"__error__": True, "message": err}
+            return {"text": text}
+        if action == "avatar":
+            source = str(params.get("image") or "").strip()
+            if not source:
+                return {"__error__": True, "message": "请填写头像图片地址（URL / base64:// / 本地路径）"}
             await self._call(event, "set_qq_avatar", file=source)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 改头像失败: {exc}")
-            yield event.plain_result(f"改头像失败：{exc}")
-            return
-        yield event.plain_result("头像已更新")
+            return {"message": "头像已更新"}
 
-    @filter.command("改昵称")
-    async def cmd_nickname(self, event: AstrMessageEvent):
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-        text = self._arg(event, "改昵称")
-        if not text:
-            yield event.plain_result("用法：/改昵称 你想设置的昵称")
-            return
-        result = await self._change_nickname(event, text)
-        yield event.plain_result(result)
+        handlers = {
+            "nickname": lambda: self.tool_set_nickname(event, str(params.get("nickname") or "")),
+            "signature": lambda: self.tool_set_signature(
+                event,
+                str(params.get("signature") or ""),
+                owner_asked=bool(params.get("owner_asked", True)),
+                reason=str(params.get("reason") or "WebUI 手动修改"),
+            ),
+            "publish": lambda: self.tool_post_feed(
+                event,
+                str(params.get("content") or ""),
+                str(params.get("images") or ""),
+            ),
+            "ai_post": lambda: self.tool_ai_post_feed(event, str(params.get("topic") or "")),
+            "like": lambda: self.tool_like_feed(event, str(params.get("target") or "1")),
+            "comment": lambda: self.tool_comment_feed(
+                event,
+                str(params.get("content") or ""),
+                str(params.get("target") or "1"),
+            ),
+            "reply_comment": lambda: self.tool_reply_comment(
+                event,
+                str(params.get("feed") or "1"),
+                str(params.get("comment") or "1"),
+                str(params.get("content") or ""),
+            ),
+            "delete": lambda: self.tool_delete_feed(event, str(params.get("target") or "1")),
+            "like_card": lambda: self.tool_like_card(
+                event,
+                str(params.get("user_id") or ""),
+                str(params.get("times") or "10"),
+            ),
+        }
+        runner = handlers.get(action)
+        if runner is None:
+            return {"__error__": True, "message": f"工具箱不支持动作 {action}"}
+        message = await runner()
+        return {"message": message}
 
-    @filter.command("改签名")
-    async def cmd_signature(self, event: AstrMessageEvent):
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-        text = self._arg(event, "改签名")
-        if not text:
-            yield event.plain_result("用法：/改签名 你想设置的签名")
-            return
-        result = await self._change_signature(event, text, owner_asked=True, reason="主人让改")
-        yield event.plain_result(result)
+    # ==================== Web API: 记录 ====================
 
-    @filter.command("名片赞")
-    async def cmd_like_card(self, event: AstrMessageEvent):
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
+    async def page_records(self):
+        records = self._complain_load()
+        history = self._toolbox_load()
+        return json_response(
+            {
+                "complain": list(reversed(records[-50:])),
+                "toolbox": list(reversed(history[-50:])),
+            }
+        )
 
-        target = ""
-        for comp in event.get_messages():
-            if isinstance(comp, At):
-                qq = str(getattr(comp, "qq", "") or "")
-                if qq.isdigit():
-                    target = qq
-                    break
 
-        rest = self._arg(event, "名片赞")
-        numbers = [token for token in re.split(r"\s+", rest) if token.isdigit()]
-        times = int(self.config.get("like_times", 10) or 10)
-        if target:
-            if numbers:
-                times = int(numbers[-1])
-        else:
-            uids = [num for num in numbers if len(num) >= 5]
-            if uids:
-                target = uids[0]
-            short = [num for num in numbers if len(num) <= 2]
-            if short:
-                times = int(short[-1])
-
-        if not target:
-            yield event.plain_result("用法：/名片赞 @某人 [次数]，或 /名片赞 QQ号 [次数]")
-            return
-
-        limited = self._limit("card_like")
-        if limited:
-            yield event.plain_result(limited)
-            return
-
-        times = max(1, min(times, 20))
-        try:
-            await self._call(event, "send_like", user_id=int(target), times=times)
-            self._mark_write(event, "card_like")
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 名片赞失败: {exc}")
-            yield event.plain_result(f"点赞失败：{exc}")
-            return
-        yield event.plain_result(f"已给 {target} 名片点赞 {times} 次")
-
-    @filter.command("发说说")
-    async def cmd_publish(self, event: AstrMessageEvent):
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-        text = self._arg(event, "发说说")
-        images = self._event_images(event)
-        if not text:
-            yield event.plain_result("用法：/发说说 说说内容（可同时附图片）")
-            return
-        result = await self._post_feed(event, text, images, speaker="owner")
-        yield event.plain_result(result)
-
-    async def _ai_post_cmd(self, event: AstrMessageEvent, cmd: str) -> AsyncGenerator[Any, None]:
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-        result = await self._ai_post(event, self._arg(event, cmd))
-        yield event.plain_result(result)
-
-    @filter.command("ai说说")
-    async def cmd_ai_post(self, event: AstrMessageEvent):
-        async for result in self._ai_post_cmd(event, "ai说说"):
-            yield result
-
-    @filter.command("写说说")
-    async def cmd_ai_post_alias(self, event: AstrMessageEvent):
-        async for result in self._ai_post_cmd(event, "写说说"):
-            yield result
-
-    @filter.command("说说列表")
-    async def cmd_list(self, event: AstrMessageEvent):
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-
-        num = int(self.config.get("max_list", 10) or 10)
-        match = re.search(r"\d+", self._arg(event, "说说列表"))
-        if match:
-            num = max(1, min(int(match.group()), 20))
-
-        try:
-            sess = await self._get_session(event)
-            items = await self._msg_list(sess, num, event)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 获取说说列表失败: {exc}")
-            yield event.plain_result(f"获取列表失败：{exc}")
-            return
-
-        if not items:
-            yield event.plain_result("没有取到说说（空间可能未开通或全部私密）")
-            return
-
-        self._last_list[sess.uin] = items
-        yield event.plain_result(self._format_list(items))
-
-    @filter.command("赞说说")
-    async def cmd_like_feed(self, event: AstrMessageEvent):
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-        arg = self._arg(event, "赞说说").split()
-        target = arg[0] if arg else ""
-        limited = self._limit("like")
-        if limited:
-            yield event.plain_result(limited)
-            return
-        try:
-            sess = await self._get_session(event)
-            tid = await self._resolve_feed(event, sess, target)
-            await self._like(event, sess, tid)
-            self._mark_write(event, "like")
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 点赞说说失败: {exc}")
-            yield event.plain_result(f"点赞失败：{exc}")
-            return
-        yield event.plain_result("已点赞")
-
-    async def _comment_flow(self, event: AstrMessageEvent, cmd: str) -> AsyncGenerator[Any, None]:
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-        target, content = self._split_target_content(event, cmd)
-        if not content:
-            yield event.plain_result(f"用法：/{cmd} [序号] 评论内容")
-            return
-        limited = self._limit("comment")
-        if limited:
-            yield event.plain_result(limited)
-            return
-        try:
-            sess = await self._get_session(event)
-            tid = await self._resolve_feed(event, sess, target)
-            await self._comment(event, sess, tid, content)
-            self._mark_write(event, "comment")
-            self._refresh_list_cache(sess.uin)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 评论说说失败: {exc}")
-            yield event.plain_result(f"评论失败：{exc}")
-            return
-        yield event.plain_result("评论已发送")
-
-    @filter.command("评说说")
-    async def cmd_comment(self, event: AstrMessageEvent):
-        async for result in self._comment_flow(event, "评说说"):
-            yield result
-
-    @filter.command("评论说说")
-    async def cmd_comment_full(self, event: AstrMessageEvent):
-        async for result in self._comment_flow(event, "评论说说"):
-            yield result
-
-    @filter.command("回复说说")
-    async def cmd_comment_reply(self, event: AstrMessageEvent):
-        async for result in self._comment_flow(event, "回复说说"):
-            yield result
-
-    @filter.command("回复评论")
-    async def cmd_reply_comment(self, event: AstrMessageEvent):
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-        rest = self._arg(event, "回复评论")
-        parts = rest.split(None, 2)
-        if len(parts) < 3:
-            yield event.plain_result("用法：/回复评论 <说说序号> <评论序号> <内容>")
-            return
-        feed, comment, content = parts
-        limited = self._limit("comment")
-        if limited:
-            yield event.plain_result(limited)
-            return
-        try:
-            sess = await self._get_session(event)
-            tid, target = await self._resolve_comment(event, sess, feed, comment)
-            await self._reply(event, sess, tid, target, content)
-            self._mark_write(event, "comment")
-            self._refresh_list_cache(sess.uin)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 回复评论失败: {exc}")
-            yield event.plain_result(f"回复失败：{exc}")
-            return
-        yield event.plain_result("回复已发送")
-
-    @filter.command("删说说")
-    async def cmd_delete(self, event: AstrMessageEvent):
-        err = self._guard(event)
-        if err:
-            yield event.plain_result(err)
-            return
-        arg = self._arg(event, "删说说").split()
-        if not arg:
-            yield event.plain_result("用法：/删说说 序号（先看 /说说列表）")
-            return
-        limited = self._limit("delete")
-        if limited:
-            yield event.plain_result(limited)
-            return
-        try:
-            sess = await self._get_session(event)
-            tid = await self._resolve_feed(event, sess, arg[0])
-            await self._delete(event, sess, tid)
-            self._mark_write(event, "delete")
-            self._refresh_list_cache(sess.uin)
-        except Exception as exc:
-            logger.error(f"[qq_toolbox] 删除说说失败: {exc}")
-            yield event.plain_result(f"删除失败：{exc}")
-            return
-        yield event.plain_result("说说已删除")
+# AstrBot 兼容：有些旧版本会按类名查找（以 Plugin 结尾）
+__all__ = ["DafeiyuSuitePlugin"]
