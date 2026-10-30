@@ -1,131 +1,144 @@
+<div align="center">
+
 # 大肥鱼工具箱
 
-把原来四个独立的 AstrBot 插件合并成一个插件，并附带一个统一的可视化控制台：
+**告状 · 用量 · 语音 · QQ 工具箱 · 长期记忆**，一个插件 + 一个可视化控制台
 
-| 模块 | 原插件 | 主要能力 |
+`AstrBot 4.29.3 实测` · `aiocqhttp（NapCat / LLOneBot）` · `v2.2.0` · `MIT`
+
+</div>
+
+---
+
+## 能做什么
+
+| 模块 | 能力 |
+| --- | --- |
+| 告状传话 | 被欺负时私聊家人告状、家人互相告状、替家人传话 |
+| DeepSeek 用量 | 查余额、今日/近 7 天消耗、token 估算、低余额撒娇提醒 |
+| 语音 | 语音转文字、文字合成语音（13 种情绪）、按概率自动发声、唱歌（3 种唱法） |
+| QQ 工具箱 | 换头像/昵称/签名、名片赞、发说说、AI 写说说、说说点赞/评论/回复/删除 |
+| 长期记忆 | 记住每个人说过的事实（住哪、做什么、喜欢/怕什么、生日），聊天前自动注入 |
+
+插件标识名：`astrbot_plugin_dafeiyu_toolbox`（Web API 同时注册了兼容前缀 `astrbot_plugin_dafeiyu_suite`、`astrbot_plugin_qq_toolbox`）
+
+---
+
+## 快速开始
+
+1. 在 AstrBot WebUI 的插件市场搜索「大肥鱼工具箱」安装，或把仓库文件夹放进 `data/plugins/`
+2. 安装依赖：`pip install -r requirements.txt`（AstrBot 通常会自动装）
+3. 重载插件
+4. 打开插件详情页 → 视图「大肥鱼工具箱控制台」，填好 Key / 主人 QQ / 家人名单
+
+> 配置文件名跟随实际安装目录，例如 `data/config/astrbot_plugin_dafeiyu_toolbox_config.json`。
+
+### 依赖
+
+| 包 | 用途 | 必需 |
 | --- | --- | --- |
-| 告状 | `astrbot_plugin_dafeiyu_complain` | 被欺负时私聊家人告状、家人互相告状、让机器人传话 |
-| 用量 | `astrbot_plugin_dafeiyu_usage` | 查 DeepSeek 余额、今日/近 7 天消耗、token 估算、低余额撒娇提醒 |
-| 语音 | `astrbot_plugin_dafeiyu_voice` | 语音识别（STT）、语音合成（TTS）、概率自动触发、歌唱模式 |
-| QQ 工具箱 | `astrbot_plugin_qq_toolbox` | 换头像/昵称/签名、名片赞、发说说、AI 写说说、点赞/评论/回复/删除说说 |
-| 长期记忆 | 新增 | 记住每个人说过的事实（住哪、做什么、喜欢/怕什么、生日），聊天前注入，本地 JSON 存储 |
-
-- 插件标识名：`astrbot_plugin_dafeiyu_toolbox`
-- 兼容别名（Web API 三前缀均已注册）：`astrbot_plugin_dafeiyu_suite`、`astrbot_plugin_qq_toolbox`
-- 版本：2.2.0 ｜ 平台：aiocqhttp（NapCat / LLOneBot） ｜ 已在 AstrBot 4.29.3 实测
-
-## 代码结构
-
-```
-astrbot_plugin_dafeiyu_toolbox/
-├── main.py                  # 唯一入口类 DafeiyuSuitePlugin + Web API + Handler 归位
-├── modules/
-│   ├── base.py              # 各模块共用：配置查找、数据目录、JSON、OneBot 客户端
-│   ├── complain.py          # 告状 Mixin
-│   ├── usage.py             # 用量 Mixin
-│   ├── voice.py             # 语音 Mixin
-│   ├── toolbox.py           # QQ 工具箱 Mixin
-│   └── memory.py            # 长期记忆 Mixin
-├── views/suite/index.html   # 可视化控制台（Plugin Views）
-├── _conf_schema.json        # 五命名空间配置（complain / usage / voice / toolbox / memory）
-└── .astrbot-plugin/i18n/    # 视图标题与说明
-```
-
-- **一个入口类 + 五个 Mixin**：AstrBot 只认一个入口类，业务按模块拆分，方法名全部加模块前缀，多继承不会静默覆盖。
-- **公共依赖收拢**：配置读取、数据目录、JSON 读写、数值转换、OneBot 客户端统一在 `modules/base.py`。
-- **配置隔离**：各模块各自一个命名空间，`owner_session`、`max_length`、`enabled` 这类同名键不会串味。
-- **Handler 归位**：AstrBot 只给 main.py 模块路径下的 Handler 绑定实例并分发事件，插件启动时会把子模块的 Handler 与 LLM 工具重新挂回 main 路径，保证指令、工具、监听都照常生效。
-
-## 安装
-
-1. 在 AstrBot WebUI 的插件市场搜索「大肥鱼工具箱」安装，或把仓库文件夹放进 `data/plugins/`。
-2. 安装依赖：`pip install -r requirements.txt`（AstrBot 通常会自动装）。
-3. 重载插件。
-4. 在插件配置页或可视化控制台里填写需要的 Key / 主人 QQ / 家人名单。
-
-> 配置文件名取决于实际安装目录，例如目录为 `astrbot_plugin_dafeiyu_toolbox` 时是 `data/config/astrbot_plugin_dafeiyu_toolbox_config.json`。
-
-依赖说明：
-
-- `aiohttp`：QQ 空间接口
-- `httpx`：DeepSeek 余额与语音接口
-- `edge-tts`：保留的原语音依赖
-- `audioop-lts`：Python 3.13+ 的 `audioop` 替代（Python 3.12 及以下不需要）
-- `pysilk`（可选）：WAV → Silk 转码，装不上时会自动回退到适配器发送
+| `aiohttp` | QQ 空间接口 | 是 |
+| `httpx` | DeepSeek 余额、语音接口 | 是 |
+| `edge-tts` | 原语音依赖 | 是 |
+| `audioop-lts` | Python 3.13+ 的 `audioop` 替代 | 3.13+ 需要 |
+| `pysilk` | WAV → Silk 转码 | 可选，缺失时自动改发 WAV |
 
 ### 平台兼容
 
-- Windows / Linux / macOS 与安卓（Termux、AstrBot 一体化 App）都能跑：插件没有平台专属调用，临时文件走 `tempfile`，路径全部 `os.path`，数据目录用 AstrBot 的 `StarTools.get_data_dir`。
-- `pysilk` 在 Android arm64 上不一定有现成轮子，装不上不影响使用，语音会自动以 WAV 形式交给适配器发送。
-- QQ 工具箱依赖 NapCat / LLOneBot 的扩展接口（空间 Cookie、改头像/昵称/签名）。安卓上让 AstrBot 连到正在运行的 NapCat（同机或反代）即可；接口不可用时只返回友好提示，不会影响其他模块。
-- 控制台「总览 → 运行信息」会直接显示运行平台、Python 版本、Silk 是否可用、OneBot 客户端是否已连接、插件数据目录。
+| 场景 | 情况 |
+| --- | --- |
+| Windows / Linux / macOS | 完整支持 |
+| 安卓（Termux、AstrBot 一体化 App） | 完整支持；`pysilk` 无 arm64 轮子时语音改发 WAV |
+| QQ 扩展能力（空间、改资料） | 需要 NapCat / LLOneBot 在线，同机或反代连接均可 |
+
+代码没有平台专属调用：临时文件统一走 `tempfile`，路径全部 `os.path`，数据目录用 AstrBot 的 `StarTools.get_data_dir`。控制台「总览 → 运行信息」会显示运行平台、Python 版本、Silk 是否可用、OneBot 客户端是否连接、数据目录。
+
+---
 
 ## 可视化控制台
 
-插件加载后，在 AstrBot WebUI 的**插件详情页**打开视图「大肥鱼工具箱控制台」。视图运行在受限 iframe 里，只能从 WebUI 内打开，不支持单独访问 URL。
+插件加载后，在 AstrBot WebUI 的**插件详情页**打开视图「大肥鱼工具箱控制台」。视图运行在受限 iframe 中，只允许从 WebUI 内打开。
 
-页面包含七个页签：
+| 页签 | 内容 |
+| --- | --- |
+| 总览 | 版本、Handler / LLM 工具数量、各模块开关与今日计数、记忆概览、运行环境自检 |
+| 告状 | 预览文案（不发送）、手动告状、传话、最近记录 |
+| 用量 | 一键查余额与消耗报告、手动触发低余额检查 |
+| 语音 | 合成并试听（说 / 唱）、上传音频转文字 |
+| 记忆 | 查看每个人的事实、手动添加、单条忘记、整体清空、文件路径 |
+| QQ 工具箱 | 测试空间连接、改资料、发说说、AI 预览、说说列表与互动、名片赞 |
+| 记录 | 告状记录与 QQ 操作记录 |
 
-- **总览**：插件版本、已注册 Handler / LLM 工具数量、平台、各模块的启用状态与今日计数、记忆概览、运行环境自检（平台 / Python 版本 / Silk 转码 / OneBot 客户端 / 数据目录）
-- **告状**：预览告状文案（不发消息）、手动告状、传话、查看最近记录
-- **用量**：一键查余额与消耗报告、手动触发低余额检查
-- **语音**：输入文本合成语音并试听（说 / 唱）、上传音频转文字
-- **记忆**：查看每个人被记住的事实、手动添加、单条忘记、整体清空、记忆文件路径
-- **QQ 工具箱**：测试空间连接、改昵称/签名/头像、发说说、AI 预览、说说列表、点赞/评论/回复/删除、名片赞
-- **记录**：告状记录与 QQ 操作记录
+配置表单由 `_conf_schema.json` 自动生成：分组折叠、开关、下拉、滑块、列表、密钥字段；密钥保存后只显示「已配置」，留空不会覆盖原值。概率类配置统一用百分比（0–100），例如「触发说说提醒的概率（%）」默认 25。
 
-配置页签按 `_conf_schema.json` 自动生成表单，支持分组折叠、开关、下拉、滑块、列表与密钥字段；密钥保存后只显示「已配置」，留空不会覆盖原值。概率类配置统一使用百分比（0-100），例如「触发说说提醒的概率（%）」默认 25。
+页面上的动作与聊天里的工具调用走同一套方法，频控、冷却、每日上限、历史记录行为完全一致。
 
-页面上的动作调用与聊天里的工具调用走同一套方法，因此频控、冷却、每日上限、历史记录行为完全一致。
+> 页面提示「未检测到 AstrBot 视图桥」时，说明不是从插件详情页打开的，或 AstrBot 版本过旧；聊天指令与 LLM 工具不受影响。
 
-> 如果页面显示「未检测到 AstrBot 视图桥」，说明不是从 WebUI 插件详情页打开的，或 AstrBot 版本过旧；聊天指令与 LLM 工具不受影响。
+---
 
 ## 模块说明
 
-### 告状
+### 告状传话
 
-- 模型判断被骂/被欺负时调用 `qq_complain`，插件私聊发告诉家人；管理员也可 `/告状 内容` 手动触发。
-- 欺负者在 `guardians` 名单里 → 发给名单里的其他人；名单外 → 发给 `owner_umo` / `owner_qq`。
-- 同一人冷却、每天总上限、群聊附带群号、重复欺负升级提示均可配置。
-- 家人可让机器人传话（`qq_relay_message`），有独立冷却与每日上限。
+- 模型判断被骂、被羞辱时调用 `qq_complain`，插件私聊发给家人；管理员也可 `/告状 内容` 手动触发
+- 欺负者在家人名单里 → 发给名单里的其他人；名单外 → 发给主人（`owner_umo` / `owner_qq`）
+- 支持单人冷却、每日上限、群聊附带群号、重复欺负升级提示
+- 家人可让机器人传话（`qq_relay_message`），有独立冷却与每日上限
 
-### 用量
+### DeepSeek 用量
 
-- LLM 工具 `deepseek_money`，指令 `/用量`、`/余额`、`/用量帮助`（默认仅管理员）。
-- DeepSeek 只提供余额接口，消耗按余额快照推算，token 数按单价换算。
-- 低余额时私聊主人，同一天最多一次；可按人格用模型写提醒。
-- 定时检查任务在 `initialize` 启动、`terminate` 停止。
+- LLM 工具 `deepseek_money`；指令 `/用量`、`/余额`、`/用量帮助`（默认仅管理员）
+- DeepSeek 只提供余额接口，消耗按余额快照推算，token 按单价换算
+- 低余额时私聊主人，同一天最多一次，可按人格让模型写提醒
+- 定时检查在 `initialize` 启动、`terminate` 停止
 
 ### 语音
 
-- 收到的语音自动转录（MiMo ASR），转录结果注入给模型。
-- 回复可按概率自动合成语音；`/说 文本` 手动合成，`/唱 歌词` 歌唱模式。
-- TTS 后端可选 BreezeBlue 或 MiMo，支持语气指令、音色选择；WAV 会转 Silk 后由 OneBot 发送。
-- 支持 13 种情绪：正常、开心、难过、生气、撒娇、害羞、害怕、疲惫、兴奋、调皮、傲娇、惊讶、唱歌；情绪可按文本自动识别，也能在控制台手动指定，每种情绪都有独立的语速/音调/气息/停顿指令。
-- 歌唱模式有三种唱法（`pop` 流行 / `lyrical` 抒情慢歌 / `child` 儿歌），歌词会自动切句、留出换气停顿，再叠加对应唱法指令。
-- `/听到` 可让机器人听当前会话最近一条语音。
+- 收到的语音自动转录（MiMo ASR），结果注入给模型
+- 回复可按概率自动合成；`/说 文本` 手动合成，`/唱 歌词` 歌唱，`/听到` 听当前会话最近一条语音
+- TTS 后端可选 BreezeBlue 或 MiMo，支持语气指令与音色；WAV 转 Silk 后由 OneBot 发送
+- 13 种情绪：正常、开心、难过、生气、撒娇、害羞、害怕、疲惫、兴奋、调皮、傲娇、惊讶、唱歌；可自动识别或手动指定，每种都有独立的语速 / 音调 / 气息 / 停顿指令
+- 唱歌支持三种唱法（`pop` 流行 / `lyrical` 抒情 / `child` 儿歌），歌词自动切句并留换气停顿
 
 ### QQ 工具箱
 
-- 11 个 LLM 工具 + 15 个指令（全插件合计 16 个 LLM 工具）：`/qq帮助`、`/改头像`、`/改昵称`、`/改签名`、`/名片赞`、`/发说说`、`/ai说说`、`/写说说`、`/说说列表`、`/赞说说`、`/评说说`、`/评论说说`、`/回复说说`、`/回复评论`、`/删说说`。
-- 换头像除了 `/改头像`，也可以直接说「换头像」并附图，由 LLM 工具 `qq_change_avatar` 调用 NapCat 的 `set_qq_avatar`。
-- 空间接口走 NapCat / LLOneBot 的 Cookie 通道，自动缓存登录态、失效重登、非标准 JSON 解析。
-- 所有写操作有全局冷却与每日上限，历史上限记录在 `history.json`。
-- 情绪触发（被夸、被凶、生日）会按百分比概率提醒她改签名或发说说。
+- 11 个 LLM 工具 + 15 个指令（全插件合计 16 个 LLM 工具）
+- 指令：`/qq帮助`、`/改头像`、`/改昵称`、`/改签名`、`/名片赞`、`/发说说`、`/ai说说`、`/写说说`、`/说说列表`、`/赞说说`、`/评说说`、`/评论说说`、`/回复说说`、`/回复评论`、`/删说说`
+- 换头像也可以直接说「换头像」并附图，由 `qq_change_avatar` 调用 NapCat 的 `set_qq_avatar`
+- 空间接口走 NapCat / LLOneBot 的 Cookie 通道，自动缓存登录态、失效重登、解析非标准 JSON
+- 写操作有全局冷却与每日上限，记录在 `history.json`
+- 被夸、被凶、生日等情绪触发时，按百分比概率提醒改签名或发说说
 
 ### 长期记忆
 
-- 只存短事实（≤40 字），一人一档，例如「住在杭州」「在做前端」「怕打雷」。
-- 数据是本地单个 JSON：`data/plugin_data/astrbot_plugin_qq_toolbox/memory.json`，不依赖数据库、embedding、知识库；写盘前自动备份 `.bak`。
-- 混合抽取：先用关键词预筛（居住地、职业、生日、喜好、害怕、家人称呼等）判断这句话值不值得记，命中才走一次模型精炼，闲聊和斜杠指令不计入、也不花 token。
-- 节流：每累计 6 条消息且距上次抽取超过 30 分钟才抽取一次，抽取在后台异步跑，不拖慢回复。
-- 注入：回复前取当前说话人的记忆，按权重与时间排序取前 6 条，追加到 system prompt；同一请求只注入一次，别人的记忆不会串进来。
-- 指令：`/记忆` 查看、`/记住 内容` 手动记（权重更高）、`/忘掉 关键词`、`/清空记忆 [全部]`、`/记忆帮助`；主人可带 QQ 号查看他人。
-- 想省 token：关掉「自动抽取」只留手动 `/记住`，或关掉「关键词预筛」以外的注入开关。
+- 只存短事实（≤40 字），一人一档，例如「住在杭州」「在做前端」「怕打雷」
+- 单个本地 JSON：`data/plugin_data/astrbot_plugin_qq_toolbox/memory.json`，不依赖数据库 / embedding / 知识库，写盘前自动备份 `.bak`
+- 混合抽取：关键词预筛（居住地、职业、生日、喜好、害怕、家人称呼等）命中后才调一次模型精炼，闲聊与斜杠指令不计入
+- 节流：每累计 6 条消息且距上次抽取超过 30 分钟才抽取一次，后台异步执行，不拖慢回复
+- 注入：回复前取当前说话人的记忆，按权重与时间排序取前 6 条追加到 system prompt；同一请求只注入一次，别人的记忆不会串进来
+- 指令：`/记忆`、`/记住 内容`（权重更高）、`/忘掉 关键词`、`/清空记忆 [全部]`、`/记忆帮助`；主人可带 QQ 号查看他人
+- 省 token 的做法：关掉「自动抽取」只保留手动 `/记住`，或在配置里调小注入条数
+
+---
+
+## 数据文件
+
+各模块沿用原插件的数据目录，历史数据可直接继承：
+
+| 模块 | 路径（`data/plugin_data/` 下） |
+| --- | --- |
+| 告状 | `astrbot_plugin_dafeiyu_complain/complaints.json` |
+| 用量 | `astrbot_plugin_dafeiyu_usage/usage.json` |
+| 语音 | `astrbot_plugin_dafeiyu_voice/` |
+| 工具箱 | `astrbot_plugin_qq_toolbox/history.json` |
+| 长期记忆 | `astrbot_plugin_qq_toolbox/memory.json` |
+
+---
 
 ## 配置迁移
 
-首次加载时，插件会读取 AstrBot 配置目录下旧四个插件的配置文件：
+首次加载会自动读取旧的配置文件：
 
 ```
 astrbot_plugin_dafeiyu_complain_config.json
@@ -134,36 +147,34 @@ astrbot_plugin_dafeiyu_voice_config.json
 astrbot_plugin_qq_toolbox_config.json
 ```
 
-把其中的键按四命名空间写入新配置。只在新配置仍为默认值时才覆盖，已经手动改过的新配置不会被旧值打扰。旧插件目录与旧配置文件不会被删除，可以随时回滚。
+按键写入新配置的对应命名空间，**只在新配置仍为默认值时才覆盖**，手动改过的值不会被旧配置打扰。旧插件目录与旧配置文件保留，可随时回滚。
 
-如果之前装过本合集更早的版本，「触发说说提醒的概率」还是 `0-1` 小数（如 `0.25`），加载时会自动换算成百分比（`25`）。
+如果装过更早的版本，「触发说说提醒的概率」还是 `0-1` 小数（如 `0.25`），加载时会自动换算成百分比（`25`）。
 
-## 数据文件
-
-各模块仍使用原插件的数据目录，历史数据可直接沿用：
-
-- 告状：`.../astrbot_plugin_dafeiyu_complain/complaints.json`
-- 用量：`.../astrbot_plugin_dafeiyu_usage/usage.json`
-- 语音：`.../astrbot_plugin_dafeiyu_voice/`
-- 工具箱：`.../astrbot_plugin_qq_toolbox/history.json`
+---
 
 ## 常见问题
 
 **指令没反应 / 工具不触发？**
-确认 AstrBot 版本支持插件子模块（本插件已在 `__init__` 里把 Handler 与 LLM 工具归位到 main 路径）；查看日志里是否有「已把 N 个 Handler 归位」。
+确认 AstrBot 版本支持插件子模块；插件在 `__init__` 时会把 Handler 与 LLM 工具归位到 main 路径，日志里能看到「已把 N 个 Handler 归位」。
 
 **可视化页面打不开或显示演示模式？**
-需要 AstrBot 4.x 的 Plugin Views 与 `context.register_web_api`，并且要从插件详情页打开视图，不要在浏览器里单独打开 `index.html`。旧版 AstrBot 会在日志提示「可视化视图不可用」，聊天指令与 LLM 工具不受影响。
+需要 AstrBot 4.x 的 Plugin Views 与 `context.register_web_api`，并从插件详情页打开视图，不要单独打开 `index.html`。旧版 AstrBot 会在日志提示「可视化视图不可用」，聊天功能不受影响。
 
-**说「换头像」时她说 NapCat 不支持？**
-请确认插件已更新到 2.1.0 且已重载；`qq_change_avatar` 工具依赖 NapCat 的 `set_qq_avatar`，NapCat / LLOneBot 需要在线且已登录。也可以改用 `/改头像` 指令排除模型因素。
+**说「换头像」时提示 NapCat 不支持？**
+确认已更新到 2.2.0 并重载；`qq_change_avatar` 依赖 NapCat 的 `set_qq_avatar`，NapCat / LLOneBot 需要在线且已登录。也可改用 `/改头像` 排除模型因素。
 
 **空间操作报登录失效？**
 确认 NapCat / LLOneBot 在线且已登录；插件会自动重取 Cookie 并重试两次。
 
 **语音发不出去？**
-检查 `pysilk` 是否安装、OneBot 适配器是否支持 `send_group_msg` / `send_private_msg`；日志会标明失败环节。
+检查 `pysilk` 是否安装、适配器是否支持 `send_group_msg` / `send_private_msg`；日志会标明失败环节。没有 `pysilk` 时会改发 WAV。
+
+**记忆文件在哪、想清空怎么办？**
+控制台「记忆」页签能看到完整路径并整体清空；也可以直接发 `/清空记忆`（仅影响自己）或 `/清空记忆 全部`（仅主人可用）。
+
+---
 
 ## 许可证
 
-MIT
+[MIT](LICENSE)
