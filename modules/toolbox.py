@@ -249,6 +249,8 @@ class ToolboxMixin(SuiteBase):
         self._toolbox_http: aiohttp.ClientSession | None = None
         # 上一次写操作时间，用于全局冷却
         self._toolbox_last_write = 0.0
+        # sender_id -> (最近一张图的来源, 记录时间)，支持「先发图再说换头像」
+        self._recent_images: dict[str, tuple[str, float]] = {}
         try:
             self._toolbox_history_path = os.path.join(
                 self.module_data_dir(NAME), "history.json"
@@ -412,6 +414,10 @@ class ToolboxMixin(SuiteBase):
                     value = getattr(comp, attr, None)
                     if isinstance(value, str) and value.strip():
                         return value.strip()
+        # 当前消息没图：回退到这个人最近 2 分钟发的图（QQ 常把图和文字拆成两条消息）
+        cached = self._recent_images.get(str(event.get_sender_id() or ""))
+        if cached and time.monotonic() - cached[1] <= 120:
+            return cached[0]
         return ""
 
     def _event_images(self, event: AstrMessageEvent) -> list[str]:
@@ -1159,6 +1165,34 @@ class ToolboxMixin(SuiteBase):
             return None
         return "只有主人能让你操作 QQ。用你的口吻轻轻拒绝，别提工具和设置。"
 
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def on_message_cache_image(self, event: AstrMessageEvent):
+        """记下每个人最近发的一张图。
+
+        QQ 常把「图片」和「换头像/发说说」拆成两条消息，等指令那条进来时
+        它自己身上没图；这里提前缓存，_find_image 就能回退到上一张。
+        """
+        try:
+            sender = str(event.get_sender_id() or "")
+            if not sender:
+                return
+            for comp in event.get_messages():
+                if not isinstance(comp, Image):
+                    continue
+                value = ""
+                for attr in ("url", "file", "path"):
+                    v = getattr(comp, attr, None)
+                    if isinstance(v, str) and v.strip():
+                        value = v.strip()
+                        break
+                if value:
+                    self._recent_images[sender] = (value, time.monotonic())
+                    if len(self._recent_images) > 200:
+                        self._recent_images.clear()
+                break
+        except Exception:
+            pass
+
     @filter.on_llm_request()
     async def mood_hint(self, event: AstrMessageEvent, req: Any):
         if not self._is_aiocqhttp(event) or not self._toolbox_is_owner(event):
@@ -1228,7 +1262,7 @@ class ToolboxMixin(SuiteBase):
     async def tool_change_avatar(self, event: AstrMessageEvent, image_url: str = ""):
         '''换你自己的 QQ 头像。
         只有主人明确让你换头像（「换头像」「把头换成这张图」）才调用，别人叫你换不要调用。
-        默认用主人这条消息里附带的图片；主人只发图不说话，也算让你换头像。
+        默认用主人这条消息里附带的图片；主人刚发过图、紧跟着说换头像，也会自动用上一张图。
         改完用一句话告诉主人，别提接口、协议或插件。
 
         Args:
