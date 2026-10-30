@@ -1217,6 +1217,30 @@ class ToolboxMixin(SuiteBase):
             return denied
         return await self._change_nickname(event, nickname)
 
+    @filter.llm_tool(name="qq_change_avatar")
+    async def tool_change_avatar(self, event: AstrMessageEvent, image_url: str = ""):
+        '''换你自己的 QQ 头像。
+        只有主人明确让你换头像（「换头像」「把头换成这张图」）才调用，别人叫你换不要调用。
+        默认用主人这条消息里附带的图片；主人只发图不说话，也算让你换头像。
+        改完用一句话告诉主人，别提接口、协议或插件。
+
+        Args:
+            image_url(string): 可选，图片链接；留空则使用当前消息里的图片
+        '''
+        denied = self._tool_guard(event)
+        if denied:
+            logger.info(f"[qq_toolbox] 非主人换头像请求：{event.get_sender_id()}")
+            return denied
+        source = (image_url or "").strip() or self._find_image(event)
+        if not source:
+            return "主人没给图片。用你的口吻问一句能不能发张图过来，我再换。"
+        try:
+            await self._call(event, "set_qq_avatar", file=source)
+        except Exception as exc:
+            logger.error(f"[qq_toolbox] 换头像失败: {exc}")
+            return "头像这次没换成。用你自己的口吻说一句等会儿再试，别提技术细节。"
+        return "头像已经换成主人给的那张了。自然地说一句就行。"
+
     @filter.llm_tool(name="qq_set_signature")
     async def tool_set_signature(
         self, event: AstrMessageEvent, signature: str, owner_asked: bool = False, reason: str = ""
