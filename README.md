@@ -1,20 +1,22 @@
-# 大肥鱼 QQ 工具箱（合集）
+# 大肥鱼工具箱
 
-把原来四个独立插件合并成一个 AstrBot 插件，并附带一个统一的可视化控制台：
+把原来四个独立的 AstrBot 插件合并成一个插件，并附带一个统一的可视化控制台：
 
 | 模块 | 原插件 | 主要能力 |
 | --- | --- | --- |
 | 告状 | `astrbot_plugin_dafeiyu_complain` | 被欺负时私聊家人告状、家人互相告状、让机器人传话 |
 | 用量 | `astrbot_plugin_dafeiyu_usage` | 查 DeepSeek 余额、今日/近 7 天消耗、token 估算、低余额撒娇提醒 |
 | 语音 | `astrbot_plugin_dafeiyu_voice` | 语音识别（STT）、语音合成（TTS）、概率自动触发、歌唱模式 |
-| QQ 工具箱 | `astrbot_plugin_qq_toolbox` | 改头像/昵称/签名、名片赞、发说说、AI 写说说、点赞/评论/回复/删除说说 |
+| QQ 工具箱 | `astrbot_plugin_qq_toolbox` | 换头像/昵称/签名、名片赞、发说说、AI 写说说、点赞/评论/回复/删除说说 |
 
-插件标识名：`astrbot_plugin_qq_toolbox`（目录名 `astrbot_plugin_dafeiyu_suite` 也可以，Web API 双前缀已兼容）。
+- 插件标识名：`astrbot_plugin_dafeiyu_toolbox`
+- 兼容别名（Web API 三前缀均已注册）：`astrbot_plugin_dafeiyu_suite`、`astrbot_plugin_qq_toolbox`
+- 版本：2.0.0 ｜ 平台：aiocqhttp（NapCat / LLOneBot） ｜ 已在 AstrBot 4.29.3 实测
 
 ## 代码结构
 
 ```
-astrbot_plugin_dafeiyu_suite/
+astrbot_plugin_dafeiyu_toolbox/
 ├── main.py                  # 唯一入口类 DafeiyuSuitePlugin + Web API + Handler 归位
 ├── modules/
 │   ├── base.py              # 四个模块共用：配置查找、数据目录、JSON、OneBot 客户端
@@ -34,10 +36,12 @@ astrbot_plugin_dafeiyu_suite/
 
 ## 安装
 
-1. 把整个 `astrbot_plugin_dafeiyu_suite` 文件夹放进 AstrBot 的 `data/plugins/`。
+1. 在 AstrBot WebUI 的插件市场搜索「大肥鱼工具箱」安装，或把仓库文件夹放进 `data/plugins/`。
 2. 安装依赖：`pip install -r requirements.txt`（AstrBot 通常会自动装）。
 3. 重载插件。
 4. 在插件配置页或可视化控制台里填写需要的 Key / 主人 QQ / 家人名单。
+
+> 配置文件名取决于实际安装目录，例如目录为 `astrbot_plugin_dafeiyu_toolbox` 时是 `data/config/astrbot_plugin_dafeiyu_toolbox_config.json`。
 
 依赖说明：
 
@@ -49,11 +53,7 @@ astrbot_plugin_dafeiyu_suite/
 
 ## 可视化控制台
 
-插件加载后打开 AstrBot 的插件视图页「大肥鱼合集控制台」，或直接访问：
-
-```
-/{PLUGIN_NAME}/suite
-```
+插件加载后，在 AstrBot WebUI 的**插件详情页**打开视图「大肥鱼工具箱控制台」。视图运行在受限 iframe 里，只能从 WebUI 内打开，不支持单独访问 URL。
 
 页面包含六个页签：
 
@@ -64,9 +64,11 @@ astrbot_plugin_dafeiyu_suite/
 - **QQ 工具箱**：测试空间连接、改昵称/签名/头像、发说说、AI 预览、说说列表、点赞/评论/回复/删除、名片赞
 - **记录**：告状记录与 QQ 操作记录
 
-配置页签按 `_conf_schema.json` 自动生成表单，支持分组折叠、开关、下拉、滑块、列表与密钥字段；密钥保存后只显示「已配置」，留空不会覆盖原值。
+配置页签按 `_conf_schema.json` 自动生成表单，支持分组折叠、开关、下拉、滑块、列表与密钥字段；密钥保存后只显示「已配置」，留空不会覆盖原值。概率类配置统一使用百分比（0-100），例如「触发说说提醒的概率（%）」默认 25。
 
 页面上的动作调用与聊天里的工具调用走同一套方法，因此频控、冷却、每日上限、历史记录行为完全一致。
+
+> 如果页面显示「未检测到 AstrBot 视图桥」，说明不是从 WebUI 插件详情页打开的，或 AstrBot 版本过旧；聊天指令与 LLM 工具不受影响。
 
 ## 模块说明
 
@@ -93,10 +95,11 @@ astrbot_plugin_dafeiyu_suite/
 
 ### QQ 工具箱
 
-- 11 个 LLM 工具 + 15 个指令：`/qq帮助`、`/改头像`、`/改昵称`、`/改签名`、`/名片赞`、`/发说说`、`/ai说说`、`/写说说`、`/说说列表`、`/赞说说`、`/评说说`、`/评论说说`、`/回复说说`、`/回复评论`、`/删说说`。
+- 11 个 LLM 工具 + 15 个指令（全插件合计 16 个 LLM 工具）：`/qq帮助`、`/改头像`、`/改昵称`、`/改签名`、`/名片赞`、`/发说说`、`/ai说说`、`/写说说`、`/说说列表`、`/赞说说`、`/评说说`、`/评论说说`、`/回复说说`、`/回复评论`、`/删说说`。
+- 换头像除了 `/改头像`，也可以直接说「换头像」并附图，由 LLM 工具 `qq_change_avatar` 调用 NapCat 的 `set_qq_avatar`。
 - 空间接口走 NapCat / LLOneBot 的 Cookie 通道，自动缓存登录态、失效重登、非标准 JSON 解析。
 - 所有写操作有全局冷却与每日上限，历史上限记录在 `history.json`。
-- 情绪触发（被夸、被凶、生日）会按概率提醒她改签名或发说说。
+- 情绪触发（被夸、被凶、生日）会按百分比概率提醒她改签名或发说说。
 
 ## 配置迁移
 
@@ -109,7 +112,9 @@ astrbot_plugin_dafeiyu_voice_config.json
 astrbot_plugin_qq_toolbox_config.json
 ```
 
-把其中的键按四命名空间写入新配置 `astrbot_plugin_dafeiyu_suite_config.json`。只在新配置仍为默认值时才覆盖，已经手动改过的新配置不会被旧值打扰。旧插件目录与旧配置文件不会被删除，可以随时回滚。
+把其中的键按四命名空间写入新配置。只在新配置仍为默认值时才覆盖，已经手动改过的新配置不会被旧值打扰。旧插件目录与旧配置文件不会被删除，可以随时回滚。
+
+如果之前装过本合集更早的版本，「触发说说提醒的概率」还是 `0-1` 小数（如 `0.25`），加载时会自动换算成百分比（`25`）。
 
 ## 数据文件
 
@@ -125,8 +130,11 @@ astrbot_plugin_qq_toolbox_config.json
 **指令没反应 / 工具不触发？**
 确认 AstrBot 版本支持插件子模块（本插件已在 `__init__` 里把 Handler 与 LLM 工具归位到 main 路径）；查看日志里是否有「已把 N 个 Handler 归位」。
 
-**可视化页面打不开？**
-需要 AstrBot 4.x 的 Plugin Views 与 `context.register_web_api`。老版本会在日志提示「可视化视图不可用」，聊天指令与 LLM 工具不受影响。
+**可视化页面打不开或显示演示模式？**
+需要 AstrBot 4.x 的 Plugin Views 与 `context.register_web_api`，并且要从插件详情页打开视图，不要在浏览器里单独打开 `index.html`。旧版 AstrBot 会在日志提示「可视化视图不可用」，聊天指令与 LLM 工具不受影响。
+
+**说「换头像」时她说 NapCat 不支持？**
+请确认插件已更新到 2.0.0 且已重载；`qq_change_avatar` 工具依赖 NapCat 的 `set_qq_avatar`，NapCat / LLOneBot 需要在线且已登录。也可以改用 `/改头像` 指令排除模型因素。
 
 **空间操作报登录失效？**
 确认 NapCat / LLOneBot 在线且已登录；插件会自动重取 Cookie 并重试两次。

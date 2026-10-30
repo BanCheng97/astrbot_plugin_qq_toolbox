@@ -17,7 +17,7 @@ from typing import Any
 
 from astrbot import logger
 
-PLUGIN_NAME = "astrbot_plugin_qq_toolbox"
+PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
 
 MISSING = object()
 

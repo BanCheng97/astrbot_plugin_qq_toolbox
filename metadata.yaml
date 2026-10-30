@@ -1,7 +1,7 @@
-name: astrbot_plugin_qq_toolbox
-display_name: 大肥鱼 QQ 工具箱（合集）
-desc: 把告状、DeepSeek 用量、语音与 QQ 空间工具箱四个插件合而为一：被欺负会私聊家人告状、能自己看钱包、能语音识别与合成、能改昵称签名发说说，内置统一可视化控制台
-help: 平时直接跟她说话就行；管理指令见 /qq帮助、/告状帮助、/用量帮助、/声音帮助，也可以打开插件可视化页面统一操作
+name: astrbot_plugin_dafeiyu_toolbox
+display_name: 大肥鱼工具箱
+desc: 把告状、DeepSeek 用量、语音与 QQ 空间工具箱四个插件合而为一：被欺负会私聊家人告状、能自己看钱包、能语音识别与合成、能换头像昵称签名和发说说，内置统一可视化控制台
+help: 平时直接跟她说话就行；管理指令见 /qq帮助、/告状帮助、/用量帮助、/声音帮助，也可以从插件详情页打开可视化控制台统一操作
 version: 2.0.0
 author: 半城
 repo: https://github.com/BanCheng97/astrbot_plugin_qq_toolbox

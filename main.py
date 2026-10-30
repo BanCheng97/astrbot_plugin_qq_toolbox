@@ -57,8 +57,8 @@ except Exception:  # pragma: no cover - 仅用于老版本 / 本地单测
 from .modules import ComplainMixin, ToolboxMixin, UsageMixin, VoiceMixin
 from .modules.base import MISSING, flatten_dict, nested_get, nested_set, to_bool, to_float, to_int
 
-PLUGIN_NAME = "astrbot_plugin_qq_toolbox"
-ALIAS_NAME = "astrbot_plugin_dafeiyu_suite"
+PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
+ALIAS_NAMES = ("astrbot_plugin_dafeiyu_suite", "astrbot_plugin_qq_toolbox")
 SUITE_VERSION = "2.0.0"
 
 PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -429,7 +429,7 @@ class DafeiyuSuitePlugin(
             ("voice/stt", self.page_voice_stt, ["POST"], "上传语音并转文字"),
             ("records", self.page_records, ["GET"], "查看告状与操作记录"),
         ]
-        for name in (PLUGIN_NAME, ALIAS_NAME):
+        for name in (PLUGIN_NAME, *ALIAS_NAMES):
             for route, handler, methods, desc in apis:
                 try:
                     register(f"/{name}/{route}", handler, methods, desc)

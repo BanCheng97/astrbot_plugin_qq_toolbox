@@ -39,6 +39,7 @@ from astrbot.api.message_components import At, Image
 
 from .base import SuiteBase, to_int
 
+# 沿用旧插件的数据目录名，历史说说与操作记录可以直接继承
 NAME = "astrbot_plugin_qq_toolbox"
 
 UA = (

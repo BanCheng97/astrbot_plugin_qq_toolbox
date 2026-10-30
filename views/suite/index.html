@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>大肥鱼 QQ 工具箱（合集）</title>
+<title>大肥鱼工具箱</title>
 <!-- AstrBot 默认把视图桥注入到 </body> 之前，会晚于下方内联脚本执行，这里显式提前引入 -->
 <script src="/api/plugin/page/bridge-sdk.js"></script>
 <style>
@@ -102,7 +102,7 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
     <div class="brand">
       <div class="logo">鱼</div>
       <div>
-        <h1>大肥鱼 QQ 工具箱（合集）</h1>
+        <h1>大肥鱼工具箱</h1>
         <div class="sub" id="subtitle">告状 · 用量 · 语音 · QQ 空间，一个插件全搞定</div>
       </div>
     </div>
@@ -324,7 +324,7 @@ function bridgeNow() {
 }
 
 const mockBridge = {
-  ready: async () => ({ pluginName: "astrbot_plugin_qq_toolbox", displayName: "大肥鱼 QQ 工具箱（合集）", isDark: false, locale: "zh-CN" }),
+  ready: async () => ({ pluginName: "astrbot_plugin_dafeiyu_toolbox", displayName: "大肥鱼工具箱", isDark: false, locale: "zh-CN" }),
   apiGet: async () => ({ demo: true }),
   apiPost: async () => ({ demo: true }),
   upload: async () => ({ text: "（演示模式）这里会显示识别结果" }),
