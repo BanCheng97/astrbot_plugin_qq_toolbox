@@ -62,7 +62,7 @@ from .modules.base import MISSING, flatten_dict, nested_get, nested_set, to_bool
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
 ALIAS_NAMES = ("astrbot_plugin_dafeiyu_suite", "astrbot_plugin_qq_toolbox")
-SUITE_VERSION = "2.2.2"
+SUITE_VERSION = "2.2.3"
 
 PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_PATH = os.path.join(PLUGIN_ROOT, "_conf_schema.json")
@@ -445,6 +445,7 @@ class DafeiyuSuitePlugin(
             ("memory/add", self.page_memory_add, ["POST"], "手动添加一条记忆"),
             ("memory/delete", self.page_memory_delete, ["POST"], "删除一条记忆"),
             ("memory/clear", self.page_memory_clear, ["POST"], "清空记忆"),
+            ("memory/import", self.page_memory_import, ["POST"], "导入记忆"),
         ]
         for name in (PLUGIN_NAME, *ALIAS_NAMES):
             for route, handler, methods, desc in apis:
@@ -957,6 +958,50 @@ class DafeiyuSuitePlugin(
         sender = str(payload.get("sender") or "").strip()
         removed = self._memory_clear(sender or None)
         return json_response({"removed": removed})
+
+    async def page_memory_import(self):
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象")
+        raw = payload.get("data", payload)
+        # 兼容两种格式：导出文件 {"users": [...]} 与 memory.json {"users": {...}}
+        users: dict[str, list[str]] = {}
+        if isinstance(raw, dict):
+            container = raw
+            while isinstance(container.get("data"), dict):
+                container = container["data"]
+            items = container.get("users")
+        else:
+            items = None
+        if isinstance(items, list):
+            for user in items:
+                if not isinstance(user, dict):
+                    continue
+                sender = str(user.get("sender") or user.get("id") or "").strip()
+                for fact in user.get("facts") or []:
+                    text = fact.get("text") if isinstance(fact, dict) else fact
+                    if sender and text:
+                        users.setdefault(sender, []).append(str(text))
+        elif isinstance(items, dict):
+            for sender, user in items.items():
+                if not isinstance(user, dict):
+                    continue
+                for fact in user.get("facts") or []:
+                    text = fact.get("text") if isinstance(fact, dict) else fact
+                    if str(sender).strip() and text:
+                        users.setdefault(str(sender).strip(), []).append(str(text))
+        if not users:
+            return error_response("没有解析出任何记忆（请选择导出的 JSON 文件）")
+        added = 0
+        for sender, texts in users.items():
+            for text in texts:
+                if self._memory_add(sender, text, weight=2):
+                    added += 1
+        return json_response({
+            "added": added,
+            "skipped": sum(len(texts) for texts in users.values()) - added,
+            "users": len(users),
+        })
 
 
 

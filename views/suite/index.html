@@ -258,6 +258,8 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
         <button class="primary" id="btn-mem-add">添加记忆</button>
         <button id="btn-mem-refresh">刷新列表</button>
         <button id="btn-mem-export">导出 JSON</button>
+        <button id="btn-mem-import">导入 JSON</button>
+        <input type="file" id="mem-import-file" accept=".json,application/json" style="display:none" />
         <button id="btn-mem-clear">清空所有人记忆</button>
       </div>
       <div class="list" id="mem-list"></div>
@@ -490,7 +492,7 @@ async function loadStatus() {
 
 function demoStatus() {
   return {
-    plugin: { version: "2.2.2", handlers: { total: 53 }, llm_tools: { total: 18 }, platforms: ["aiocqhttp"] },
+    plugin: { version: "2.2.3", handlers: { total: 53 }, llm_tools: { total: 18 }, platforms: ["aiocqhttp"] },
     complain: { enabled: true, owner_configured: false, guardians: 2, today: 3, today_relay: 1, records: 9, cooldown: 600, daily_limit: 5 },
     usage: { enabled: true, api_key_configured: false, alert_enabled: true, alert_threshold: 5, check_interval_hours: 6, task_running: false },
     voice: { listen_enabled: true, speak_enabled: true, sing_enabled: true, backend: "breeze", speak_prob_percent: 10 },
@@ -939,6 +941,24 @@ function bindActions() {
     const total = (data.users || []).reduce((n, u) => n + (u.facts || []).length, 0);
     toast(`已导出 ${total} 条记忆`, "ok");
   }));
+  $("btn-mem-import").addEventListener("click", () => $("mem-import-file").click());
+  $("mem-import-file").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!file) return;
+    await run($("btn-mem-import"), async () => {
+      let data;
+      try {
+        data = JSON.parse(await file.text());
+      } catch (e) {
+        throw new Error("不是合法的 JSON 文件");
+      }
+      const res = await post("memory/import", { data });
+      await loadMemory();
+      await loadStatus();
+      toast(`导入完成：新增 ${res.added || 0} 条，跳过 ${res.skipped || 0} 条重复`, "ok");
+    });
+  });
   $("btn-mem-clear").addEventListener("click", () => run($("btn-mem-clear"), async () => {
     if (!confirm("确定清空所有人的记忆吗？")) return null;
     await post("memory/clear", {});
