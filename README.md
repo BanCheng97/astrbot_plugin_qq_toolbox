@@ -11,7 +11,7 @@
 
 - 插件标识名：`astrbot_plugin_dafeiyu_toolbox`
 - 兼容别名（Web API 三前缀均已注册）：`astrbot_plugin_dafeiyu_suite`、`astrbot_plugin_qq_toolbox`
-- 版本：2.1.0 ｜ 平台：aiocqhttp（NapCat / LLOneBot） ｜ 已在 AstrBot 4.29.3 实测
+- 版本：2.1.1 ｜ 平台：aiocqhttp（NapCat / LLOneBot） ｜ 已在 AstrBot 4.29.3 实测
 
 ## 代码结构
 

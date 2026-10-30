@@ -1,5 +1,11 @@
 # 更新日志
 
+## 2.1.1（2026-10-30）
+
+### 修复
+
+- AI 写说说的 `post_provider_id` 指向已删除或非聊天的 provider 时，先自查再回退当前会话模型，不再触发 AstrBot 的 `Provider xxx was not found` 警告
+
 ## 2.1.0（2026-10-30）
 
 ### 语音增强

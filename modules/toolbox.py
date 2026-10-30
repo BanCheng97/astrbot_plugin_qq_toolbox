@@ -1093,7 +1093,13 @@ class ToolboxMixin(SuiteBase):
         try:
             if provider_id:
                 getter = getattr(self.context, "get_provider_by_id", None)
-                provider = getter(provider_id) if callable(getter) else None
+                # 先自查 provider 是否还在，避免 AstrBot 对失效 ID 打警告
+                pm = getattr(self.context, "provider_manager", None)
+                inst_map = getattr(pm, "inst_map", None) if pm is not None else None
+                if isinstance(inst_map, dict) and inst_map and provider_id not in inst_map:
+                    logger.info(f"[qq_toolbox] 配置的说说模型 {provider_id} 已失效，回退当前会话模型")
+                elif callable(getter):
+                    provider = getter(provider_id)
             if provider is None:
                 getter = getattr(self.context, "get_using_provider", None)
                 if callable(getter):

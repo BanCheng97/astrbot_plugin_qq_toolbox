@@ -11,7 +11,7 @@
   "半城/astrbot_plugin_dafeiyu_toolbox": {
     "author": "半城",
     "name": "astrbot_plugin_dafeiyu_toolbox",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "repo": "https://github.com/BanCheng97/astrbot_plugin_qq_toolbox",
     "desc": "四合一：告状与传话、DeepSeek 余额与消耗、语音识别/合成/唱歌、QQ 头像昵称签名与说说互动；带统一可视化控制台",
     "display_name": "大肥鱼工具箱",
