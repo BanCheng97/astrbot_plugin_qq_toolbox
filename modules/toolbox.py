@@ -1184,7 +1184,14 @@ class ToolboxMixin(SuiteBase):
             return  # 主人已经在说这件事了
         if self._toolbox_count_today("feed") >= int(self._toolbox_cfg("daily_feed_limit") or 2):
             return
-        chance = float(self._toolbox_cfg("feed_hint_chance", 0.25) or 0.25)
+        raw = self._toolbox_cfg("feed_hint_chance", 25)
+        try:
+            percent = float(raw)
+        except (TypeError, ValueError):
+            percent = 25.0
+        if isinstance(raw, float) and 0 <= percent <= 1:
+            percent *= 100  # 兼容旧版 0-1 的小数配置
+        chance = max(0.0, min(100.0, percent)) / 100.0
         if random.random() > chance:
             return
         req.system_prompt = (req.system_prompt or "") + (
