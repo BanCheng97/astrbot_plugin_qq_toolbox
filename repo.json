@@ -5,7 +5,7 @@
     "version": "2026-10-30",
     "homepage": "https://github.com/BanCheng97",
     "repository": "https://github.com/BanCheng97/astrbot_plugin_qq_toolbox",
-    "description": "告状 + DeepSeek 用量 + 语音 + QQ 空间工具箱的合集插件，带统一可视化控制台",
+    "description": "告状传话、DeepSeek 用量查询、语音听写与多情绪合成（含唱歌）、QQ 头像昵称签名与说说互动，内置统一可视化控制台",
     "updated_at": "2026-10-30T00:00:00Z"
   },
   "半城/astrbot_plugin_dafeiyu_toolbox": {
@@ -13,7 +13,7 @@
     "name": "astrbot_plugin_dafeiyu_toolbox",
     "version": "2.1.1",
     "repo": "https://github.com/BanCheng97/astrbot_plugin_qq_toolbox",
-    "desc": "四合一：告状与传话、DeepSeek 余额与消耗、语音识别/合成/唱歌、QQ 头像昵称签名与说说互动；带统一可视化控制台",
+    "desc": "被欺负会私聊家人告状、家人间传话；查 DeepSeek 余额与低余额提醒；语音听写/合成（13 种情绪、唱歌三种唱法）；QQ 头像昵称签名、名片赞、发说说、AI 写说说、说说互动；内置统一可视化控制台",
     "display_name": "大肥鱼工具箱",
     "support_platforms": ["aiocqhttp"]
   }
