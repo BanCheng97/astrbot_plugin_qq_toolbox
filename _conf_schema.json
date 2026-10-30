@@ -512,10 +512,11 @@
             "default": true
           },
           "feed_hint_chance": {
-            "description": "触发说说提醒的概率",
-            "type": "float",
-            "hint": "0-1，默认 0.25，即四次情绪触发大概有一次会提示她发说说",
-            "default": 0.25
+            "description": "触发说说提醒的概率（%）",
+            "type": "int",
+            "hint": "0-100，默认 25，即四次情绪触发大概有一次会提示她发说说；填 0 表示从不主动提醒",
+            "slider": {"min": 0, "max": 100, "step": 5},
+            "default": 25
           },
           "daily_feed_limit": {
             "description": "一天最多发几条说说",

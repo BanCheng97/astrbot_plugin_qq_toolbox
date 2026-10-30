@@ -251,6 +251,7 @@ class DafeiyuSuitePlugin(
         self.setup_toolbox()
 
         self._migrate_legacy_config()
+        self._normalize_percent_config()
         self._register_web_apis()
         self._rehome_handlers()
 
@@ -378,6 +379,14 @@ class DafeiyuSuitePlugin(
                 if key not in flat:
                     continue
                 old_value = flat[key]
+                # 说说提醒概率在旧版是 0-1 小数，新版统一为 0-100 百分比
+                if (
+                    path[-3:] == ("toolbox", "feed", "feed_hint_chance")
+                    and isinstance(old_value, (int, float))
+                    and not isinstance(old_value, bool)
+                    and 0 < float(old_value) <= 1
+                ):
+                    old_value = round(float(old_value) * 100)
                 existing = nested_get(current, list(path[1:]))
                 default = spec.get("default")
                 if existing is MISSING or existing == default:
@@ -389,6 +398,21 @@ class DafeiyuSuitePlugin(
         if changed:
             self.save_config()
             logger.info(f"[suite] 已从旧插件配置迁移 {changed} 项设置")
+
+    def _normalize_percent_config(self) -> None:
+        """把历史版本按 0-1 小数保存的概率值换算成百分比整数。"""
+        try:
+            value = nested_get(self.config, ["toolbox", "feed", "feed_hint_chance"])
+        except Exception:
+            return
+        if isinstance(value, bool) or not isinstance(value, float):
+            return
+        if not 0 <= value <= 1:
+            return
+        percent = int(round(value * 100))
+        nested_set(self.config, ["toolbox", "feed", "feed_hint_chance"], percent)
+        self.save_config()
+        logger.info(f"[suite] 说说提醒概率已从 {value} 换算为 {percent}%")
 
     # ==================== Web API 注册 ====================
 
