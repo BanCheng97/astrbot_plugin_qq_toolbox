@@ -17,9 +17,12 @@ AstrBot 只给「main 模块路径」下的 Handler 绑定实例、并参与事�
 from __future__ import annotations
 
 import base64
+import importlib.util
 import json
 import os
+import platform
 import re
+import sys
 import tempfile
 import time
 from typing import Any
@@ -54,12 +57,12 @@ except Exception:  # pragma: no cover - 仅用于老版本 / 本地单测
 
     request = _FallbackRequest()  # type: ignore[assignment]
 
-from .modules import ComplainMixin, ToolboxMixin, UsageMixin, VoiceMixin
+from .modules import ComplainMixin, MemoryMixin, ToolboxMixin, UsageMixin, VoiceMixin
 from .modules.base import MISSING, flatten_dict, nested_get, nested_set, to_bool, to_float, to_int
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
 ALIAS_NAMES = ("astrbot_plugin_dafeiyu_suite", "astrbot_plugin_qq_toolbox")
-SUITE_VERSION = "2.1.2"
+SUITE_VERSION = "2.2.0"
 
 PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_PATH = os.path.join(PLUGIN_ROOT, "_conf_schema.json")
@@ -73,6 +76,14 @@ LEGACY_MODULES = {
 }
 
 _SCHEMA_CACHE: dict[str, Any] | None = None
+
+
+def _has_module(name: str) -> bool:
+    """模块是否可导入（不真的 import，省得触发二进制加载）。"""
+    try:
+        return importlib.util.find_spec(name) is not None
+    except Exception:
+        return False
 
 
 def _load_schema() -> dict[str, Any]:
@@ -233,6 +244,7 @@ class DafeiyuSuitePlugin(
     UsageMixin,
     VoiceMixin,
     ToolboxMixin,
+    MemoryMixin,
     Star,
 ):
     def __init__(self, context: Context | None = None, config: Any = None):
@@ -249,6 +261,7 @@ class DafeiyuSuitePlugin(
         self.setup_usage()
         self.setup_voice()
         self.setup_toolbox()
+        self.setup_memory()
 
         self._migrate_legacy_config()
         self._normalize_percent_config()
@@ -428,6 +441,10 @@ class DafeiyuSuitePlugin(
             ("action", self.page_action, ["POST"], "触发模块功能"),
             ("voice/stt", self.page_voice_stt, ["POST"], "上传语音并转文字"),
             ("records", self.page_records, ["GET"], "查看告状与操作记录"),
+            ("memory", self.page_memory, ["GET"], "查看长期记忆"),
+            ("memory/add", self.page_memory_add, ["POST"], "手动添加一条记忆"),
+            ("memory/delete", self.page_memory_delete, ["POST"], "删除一条记忆"),
+            ("memory/clear", self.page_memory_clear, ["POST"], "清空记忆"),
         ]
         for name in (PLUGIN_NAME, *ALIAS_NAMES):
             for route, handler, methods, desc in apis:
@@ -554,8 +571,21 @@ class DafeiyuSuitePlugin(
                 "history": len(self._toolbox_load()),
                 "domain": str(self._toolbox_cfg("qzone_domain", "user.qzone.qq.com") or ""),
             },
+            "memory": self._memory_stats(),
+            "runtime": self._runtime_info(),
         }
         return json_response(data)
+
+    def _runtime_info(self) -> dict[str, Any]:
+        """运行环境自检：在安卓 / Linux / Windows 上都能看出缺什么。"""
+        return {
+            "os": sys.platform,
+            "python": platform.python_version(),
+            "silk": _has_module("pysilk"),
+            "audioop": _has_module("audioop") or _has_module("audioop_lts"),
+            "onebot": bool(self.platform_client()),
+            "data_dir": os.path.dirname(self._memory_path),
+        }
 
     def _platform_names(self) -> list[str]:
         names: list[str] = []
@@ -589,7 +619,7 @@ class DafeiyuSuitePlugin(
                 "schema": schema,
                 "values": values,
                 "secrets": configured,
-                "modules": ["complain", "usage", "voice", "toolbox"],
+                "modules": ["complain", "usage", "voice", "toolbox", "memory"],
             }
         )
 
@@ -884,6 +914,50 @@ class DafeiyuSuitePlugin(
                 "toolbox": list(reversed(history[-50:])),
             }
         )
+
+    # ==================== Web API: 长期记忆 ====================
+
+    async def page_memory(self):
+        return json_response(
+            {
+                "users": self._memory_all(),
+                "stats": self._memory_stats(),
+                "path": self._memory_path,
+            }
+        )
+
+    async def page_memory_add(self):
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象")
+        sender = str(payload.get("sender") or "").strip()
+        text = str(payload.get("text") or "").strip()
+        if not sender:
+            return error_response("缺少 sender（要记在谁名下，填 QQ 号）")
+        if not text:
+            return error_response("缺少 text（要记住的内容）")
+        self._memory_add(sender, text, weight=3)
+        return json_response({"message": f"已记在 {sender} 名下", "facts": len(self._memory_list(sender))})
+
+    async def page_memory_delete(self):
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象")
+        sender = str(payload.get("sender") or "").strip()
+        keyword = str(payload.get("keyword") or "").strip()
+        if not sender or not keyword:
+            return error_response("缺少 sender 或 keyword")
+        removed = self._memory_delete(sender, keyword)
+        return json_response({"removed": removed, "facts": len(self._memory_list(sender))})
+
+    async def page_memory_clear(self):
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象")
+        sender = str(payload.get("sender") or "").strip()
+        removed = self._memory_clear(sender or None)
+        return json_response({"removed": removed})
+
 
 
 # AstrBot 兼容：有些旧版本会按类名查找（以 Plugin 结尾）

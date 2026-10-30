@@ -633,5 +633,93 @@
         }
       }
     }
+  },
+  "memory": {
+    "description": "长期记忆",
+    "type": "object",
+    "hint": "自动记住每个人说过的事实，全部存在本地 JSON（plugin_data/astrbot_plugin_qq_toolbox/memory.json），不依赖数据库、embedding 和知识库。",
+    "items": {
+      "basic": {
+        "description": "开关",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "enabled": {
+            "description": "启用长期记忆",
+            "type": "bool",
+            "hint": "关掉后既不自动抽取，也不往对话里注入记忆",
+            "default": true
+          },
+          "inject_enabled": {
+            "description": "对话前注入记忆",
+            "type": "bool",
+            "hint": "每次请求把当前说话人的事实拼进 system_prompt，会多消耗一点输入 token",
+            "default": true
+          },
+          "auto_extract": {
+            "description": "自动从聊天里抽取记忆",
+            "type": "bool",
+            "hint": "关掉后只能用 /记住 手动添加，零模型调用",
+            "default": true
+          },
+          "keyword_gate": {
+            "description": "只抽取像在说自己事的句子",
+            "type": "bool",
+            "hint": "先按关键词预筛，命中才攒起来，能大幅减少模型调用；关掉则每句话都参与",
+            "default": true
+          }
+        }
+      },
+      "extract": {
+        "description": "抽取策略",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "extract_every_n_messages": {
+            "description": "攒够几句话抽一次",
+            "type": "int",
+            "hint": "同一个人攒到这么多句「说自己」的话，才调一次模型抽取；调大更省 token",
+            "default": 6
+          },
+          "extract_min_interval_minutes": {
+            "description": "同一个人两次抽取的最小间隔（分钟）",
+            "type": "int",
+            "hint": "避免一口气刷屏时反复调模型；0 表示不限制",
+            "default": 30
+          },
+          "extract_provider_id": {
+            "description": "抽取用的模型（可选）",
+            "type": "string",
+            "hint": "留空用当前会话模型；填错或已删除会自动回退，不会报 Provider 不存在",
+            "default": ""
+          },
+          "fact_max_chars": {
+            "description": "单条事实最多几个字",
+            "type": "int",
+            "hint": "超长会截断，短一点注入时更省 token",
+            "default": 40
+          }
+        }
+      },
+      "inject": {
+        "description": "注入与容量",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "inject_top_n": {
+            "description": "每次对话注入几条事实",
+            "type": "int",
+            "hint": "按权重和时间取前几条，越多越有记性，也越费 token",
+            "default": 6
+          },
+          "max_facts_per_user": {
+            "description": "每个人最多存几条事实",
+            "type": "int",
+            "hint": "超出后按权重和时间淘汰最弱的",
+            "default": 40
+          }
+        }
+      }
+    }
   }
 }
