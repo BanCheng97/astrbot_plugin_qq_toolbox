@@ -370,13 +370,20 @@ class MemoryMixin(SuiteBase):
                 return
             top_n = max(1, to_int(self._memory_cfg("inject_top_n", 6), 6))
             facts = self._memory_facts(sender, top_n)
-            if not facts:
-                return
-            block = (
-                "【你记得关于当前对话者的长期记忆】\n"
-                + "\n".join(f"- {fact}" for fact in facts)
-                + "\n（这些是你记得的事，聊天时自然带出来就好，不要逐条复述，也不要说「根据记忆」）"
-            )
+            if facts:
+                block = (
+                    "【你记得关于当前对话者的长期记忆】\n"
+                    + "\n".join(f"- {fact}" for fact in facts)
+                    + "\n（这些是你记得的事，聊天时自然带出来就好，不要逐条复述，也不要说「根据记忆」）"
+                )
+            else:
+                # 没有记忆时也要明说，否则模型会顺着「你记住了吗」编出记得的事
+                block = (
+                    "【长期记忆】你目前还没有关于这个人的长期记忆。"
+                    "对方问「你还记得我吗」「你记住了什么」时，如实说还没记住，"
+                    "让对方直接告诉你值得记的事（也可以发 /记住 内容）；"
+                    "绝对不要编造记得的事情，也不要承诺「已经记住了」。"
+                )
             current = str(getattr(req, "system_prompt", "") or "")
             req.system_prompt = f"{current}\n\n{block}" if current else block
             try:
@@ -385,6 +392,53 @@ class MemoryMixin(SuiteBase):
                 pass
         except Exception as exc:
             logger.warning(f"[memory] 注入记忆失败: {exc}")
+
+    # ---------------- LLM 工具 -----------------------------
+
+    @filter.llm_tool(name="memory_recall")
+    async def tool_memory_recall(self, event: AstrMessageEvent, who: str = ""):
+        '''翻看你自己的长期记忆，看看记住了对方哪些事。
+        对方问「你还记得我吗」「我上次说过什么」「你记住了什么」时调用，需要想起对方的喜好、住址、生日、家人称呼时也可以调用。
+        返回的是你真正记住的内容；如果返回说没有，就如实回答还没记住，不要编。
+
+        Args:
+            who(string): 可选，要查谁的 QQ 号；留空表示当前对话的人，只有主人能填别人的 QQ 号
+        '''
+        if not bool(self._memory_cfg("enabled", True)):
+            return "长期记忆功能已关闭。"
+        sender = str(event.get_sender_id() or "")
+        target = (who or "").strip()
+        if target and target != sender:
+            if not self._complain_is_owner(event):
+                return "只有主人能看别人的记忆。"
+        else:
+            target = sender
+        facts = self._memory_list(target)
+        if not facts:
+            return "没有找到关于这个人的长期记忆。如实说自己还没记住，让对方直接告诉你。"
+        lines = [f"{index}. {fact.get('text')}" for index, fact in enumerate(facts, 1)]
+        return "你记得关于这个人：\n" + "\n".join(lines)
+
+    @filter.llm_tool(name="memory_remember")
+    async def tool_memory_remember(self, event: AstrMessageEvent, fact: str):
+        '''把对方刚说的一件值得长期记住的事写进记忆。
+        只记稳定的事实：住哪、做什么工作、生日、喜欢什么、怕什么、家人的称呼。
+        不要记闲聊、情绪、一次性的计划；一次只记一条，尽量压成一句短话。
+        对方明确说「记住……」时也要调用这个工具，然后自然地说一句记住了。
+
+        Args:
+            fact(string): 要记住的一句话，20 字以内，第三人称事实，例如「住在杭州」「在做前端开发」
+        '''
+        if not bool(self._memory_cfg("enabled", True)):
+            return "长期记忆功能已关闭。"
+        text = self._memory_norm(fact or "")
+        if not text:
+            return "没听出值得记的稳定事实，就不用记了。"
+        sender = str(event.get_sender_id() or "")
+        added = self._memory_add(sender, text, weight=3)
+        if added:
+            return f"记住了：{text}。用一句话自然地说你记住了，不用复述全部内容。"
+        return f"「{text}」已经记过了，同样用一句话自然回应即可。"
 
     # ---------------- 斜杠指令 -----------------------------
 

@@ -4,7 +4,7 @@
 
 **告状 · 用量 · 语音 · QQ 工具箱 · 长期记忆**，一个插件 + 一个可视化控制台
 
-`AstrBot 4.29.3 实测` · `aiocqhttp（NapCat / LLOneBot）` · `v2.2.0` · `MIT`
+`AstrBot 4.29.3 实测` · `aiocqhttp（NapCat / LLOneBot）` · `v2.2.1` · `MIT`
 
 </div>
 
@@ -121,7 +121,7 @@
 
 ### QQ 工具箱
 
-- 11 个 LLM 工具 + 15 个指令（全插件合计 16 个 LLM 工具）
+- 11 个 LLM 工具 + 15 个指令（全插件合计 18 个 LLM 工具）
 - 指令：`/qq帮助`、`/改头像`、`/改昵称`、`/改签名`、`/名片赞`、`/发说说`、`/ai说说`、`/写说说`、`/说说列表`、`/赞说说`、`/评说说`、`/评论说说`、`/回复说说`、`/回复评论`、`/删说说`
 - 换头像也可以直接说「换头像」并附图，由 `qq_change_avatar` 调用 NapCat 的 `set_qq_avatar`
 - 空间接口走 NapCat / LLOneBot 的 Cookie 通道，自动缓存登录态、失效重登、解析非标准 JSON
@@ -136,6 +136,8 @@
 - 节流：每累计 6 条消息且距上次抽取超过 30 分钟才抽取一次，后台异步执行，不拖慢回复
 - 注入：回复前取当前说话人的记忆，按权重与时间排序取前 6 条追加到 system prompt；同一请求只注入一次，别人的记忆不会串进来
 - 指令：`/记忆`、`/记住 内容`（权重更高）、`/忘掉 关键词`、`/清空记忆 [全部]`、`/记忆帮助`；主人可带 QQ 号查看他人
+- 聊天里也能用：她有两个 LLM 工具，`memory_recall` 在对方问「你还记得我吗」「我上次说过什么」时翻档案，`memory_remember` 在对方说出稳定事实时直接写入，不必打斜杠
+- 没有记忆时她会如实说还没记住，不会编造「已经记下了」
 - 省 token 的做法：关掉「自动抽取」只保留手动 `/记住`，或在配置里调小注入条数
 
 ---
@@ -180,7 +182,7 @@ astrbot_plugin_qq_toolbox_config.json
 需要 AstrBot 4.x 的 Plugin Views 与 `context.register_web_api`，并从插件详情页打开视图，不要单独打开 `index.html`。旧版 AstrBot 会在日志提示「可视化视图不可用」，聊天功能不受影响。
 
 **说「换头像」时提示 NapCat 不支持？**
-确认已更新到 2.2.0 并重载；`qq_change_avatar` 依赖 NapCat 的 `set_qq_avatar`，NapCat / LLOneBot 需要在线且已登录。也可改用 `/改头像` 排除模型因素。
+确认已更新到 2.2.1 并重载；`qq_change_avatar` 依赖 NapCat 的 `set_qq_avatar`，NapCat / LLOneBot 需要在线且已登录。也可改用 `/改头像` 排除模型因素。
 
 **空间操作报登录失效？**
 确认 NapCat / LLOneBot 在线且已登录；插件会自动重取 Cookie 并重试两次。
