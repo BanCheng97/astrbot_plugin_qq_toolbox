@@ -423,6 +423,13 @@
             "type": "bool",
             "hint": "关闭后 /唱 指令及工具调用将停用",
             "default": true
+          },
+          "sing_style": {
+            "description": "默认唱法",
+            "type": "string",
+            "hint": "pop 流行 / lyrical 抒情慢歌 / child 儿歌；会作为演唱风格指令传给 TTS",
+            "options": ["pop", "lyrical", "child"],
+            "default": "pop"
           }
         }
       },

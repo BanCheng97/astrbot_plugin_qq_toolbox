@@ -732,16 +732,15 @@ class DafeiyuSuitePlugin(
             return {"__error__": True, "message": "请填写要合成的文本"}
         if action == "sing" and not self._voice_cfg("sing_enabled", True):
             return {"__error__": True, "message": "歌唱模式已关闭"}
+        style = str(params.get("style") or "").strip()
         if action == "sing":
-            text = re.sub(r"[，,]", "，", text)
-            for punc in ("，", "。", "！", "？"):
-                text = text.replace(punc, punc + "…")
+            # 切句与停顿交给 _synthesize / _format_lyrics，这里不要再手工塞省略号
             text = text[:400]
             emotion = "sing"
         else:
             emotion = str(params.get("emotion") or "").strip() or self._detect_emotion(text)
             text = text[:300]
-        path = await self._synthesize(text, emotion)
+        path = await self._synthesize(text, emotion, style)
         try:
             with open(path, "rb") as file:
                 raw = file.read()
@@ -756,6 +755,7 @@ class DafeiyuSuitePlugin(
                 "audio": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}",
                 "mime": mime,
                 "emotion": emotion,
+                "style": style,
                 "chars": len(text),
             }
         finally:

@@ -73,19 +73,30 @@ class VoiceMixin(SuiteBase):
     def _detect_emotion(self, text: str) -> str:
         t = text or ""
         # 唱歌优先级最高
-        if any(w in t for w in ["唱", "歌", "哼", "旋律", "调调", "歌词"]):
+        if any(w in t for w in ["唱", "歌", "哼一段", "旋律", "歌词"]):
             return "sing"
-        happy = any(w in t for w in ["哈哈", "嘻嘻", "开心", "太好了", "哇", "耶", "嘿嘿", "~", "！"])
-        sad = any(w in t for w in ["呜", "呜呜", "难过", "伤心", "哭", "委屈", "想你", "……", "。。。"])
-        angry = any(w in t for w in ["哼", "讨厌", "烦", "生气", "滚"])
-        if sad:
+        if any(w in t for w in ["呜呜", "难过", "伤心", "想哭", "哭了", "委屈", "舍不得", "……", "。。。"]):
             return "sad"
-        if angry:
+        if any(w in t for w in ["害怕", "好怕", "吓死", "恐怖", "不敢", "发抖"]):
+            return "scared"
+        if any(w in t for w in ["讨厌", "烦死", "生气", "气死", "滚", "闭嘴", "哼！"]):
             return "angry"
-        if happy:
-            return "happy"
-        if any(w in t for w in ["好不好", "好不好嘛", "求你", "好不好嘛", "撒娇"]):
+        if any(w in t for w in ["好累", "困了", "想睡", "没力气", "熬夜", "撑不住", "叹气"]):
+            return "tired"
+        if any(w in t for w in ["害羞", "不好意思", "脸红", "别看", "别夸我", "羞"]):
+            return "shy"
+        if any(w in t for w in ["才不是", "才没有", "谁要", "才不稀罕", "哼，才"]):
+            return "tsundere"
+        if any(w in t for w in ["真的假的", "不会吧", "居然", "竟然", "天啊", "我的天", "什么？！"]):
+            return "surprised"
+        if any(w in t for w in ["太棒了", "绝了", "冲鸭", "啊啊啊", "好激动", "兴奋", "等不及"]):
+            return "excited"
+        if any(w in t for w in ["略略略", "逗你", "骗你的", "开玩笑", "调皮"]):
+            return "playful"
+        if any(w in t for w in ["撒娇", "求你", "好不好嘛", "抱抱", "亲亲", "陪陪我"]):
             return "soft"
+        if any(w in t for w in ["哈哈", "嘻嘻", "开心", "太好了", "哇", "耶", "嘿嘿", "~", "！"]):
+            return "happy"
         return "normal"
 
     def _user_says_sing(self, event: AstrMessageEvent) -> bool:
@@ -101,7 +112,13 @@ class VoiceMixin(SuiteBase):
                 elif isinstance(seg, str):
                     user_text += seg
             user_text = user_text.strip()
-            return any(w in user_text for w in ["唱个歌", "唱歌给我", "唱一首", "会唱", "来首歌", "哼一段", "唱一下", "你唱", "唱两句", "唱个", "唱吧"])
+            return any(
+                w in user_text
+                for w in [
+                    "唱个歌", "唱歌给我", "唱一首", "会唱", "来首歌", "来一段",
+                    "整一首", "唱一段", "哼一段", "唱一下", "你唱", "唱两句", "唱个", "唱吧",
+                ]
+            )
         except Exception:
             return False
 
@@ -110,13 +127,44 @@ class VoiceMixin(SuiteBase):
     # emotion → 语气指令映射（BreezeBlue / MiMo 通用）
     _EMOTION_INSTRUCTIONS = {
         "normal": "",
-        "happy": "像真人聊天一样开心活泼，语速轻快，句尾带笑意和一点上扬",
-        "sad": "声音放轻放慢，带一点鼻音和哽咽的气音，不要念课文",
-        "angry": "带情绪的抱怨语气，语速偏快，尾音短促，但别像朗读",
-        "soft": "温柔撒娇、甜甜糯糯，语速慢一点，句尾轻轻放缓，带一点气声",
-        "sing": "用唱歌的调调唱出来，每个字都有旋律感，像歌曲一样有高低起伏",
+        "happy": "像真人突然开心起来：语速快一点、语调上扬、句尾带笑，气息轻快，别一字一顿",
+        "sad": "低声、放慢，带鼻音和一点哽咽的气声，句尾下沉并有停顿，像忍着情绪说话",
+        "angry": "压着火的抱怨：语速偏快、重音明显、尾音短促有力，别拖腔，别像朗读",
+        "soft": "软糯撒娇，音量偏小、语速慢，句尾往上轻轻拖，夹一点气声，甜但不做作",
+        "shy": "害羞小声，语速偏慢、有点犹豫和停顿，尾音轻轻收住，带一点气声",
+        "surprised": "惊讶地轻呼，语调先高后落，语速偏快，重音落在关键信息上",
+        "scared": "害怕得发抖，音量偏小、语速偏快，句间短促停顿，气息不稳",
+        "tired": "疲惫、有气无力，语速慢、音量低，句尾下滑，带叹气感",
+        "excited": "兴奋到雀跃，音调高、节奏快、句尾上扬，允许一点笑声和气口",
+        "playful": "调皮逗弄，语调跳跃，故意拖长某个字，带笑意，别念得太工整",
+        "tsundere": "傲娇：前面嘴硬、语速快，句尾突然软下来，带一点鼻音和不情愿",
+        "sing": "真的唱出来：有明确旋律和高低起伏，句尾拖音、句间换气，允许轻微音准偏差，绝对不能像朗读或一字一顿",
+    }
+    # 唱歌风格（在 sing 基础上叠加）
+    _SING_STYLE_INSTRUCTIONS = {
+        "pop": "按流行歌的唱法：主歌平稳、副歌情绪拉高，节奏有强弱变化",
+        "lyrical": "按抒情慢歌的唱法：气息轻、尾音长，句间留出换气停顿，带一点鼻音",
+        "child": "按小朋友唱儿歌的唱法：音调偏高、节奏轻快、吐字可爱",
     }
     _NATURAL_INSTRUCTION = "像真人语音聊天一样口语自然，语气亲切、有起伏和呼吸感，句尾自然收住，不要播音腔和念稿感"
+
+    def _emotion_instruction(self, emotion: str, style: str = "") -> str:
+        base = self._EMOTION_INSTRUCTIONS.get(emotion, "")
+        if emotion == "sing":
+            extra = self._SING_STYLE_INSTRUCTIONS.get(style or "pop", "")
+            if extra:
+                base = f"{base}；{extra}" if base else extra
+        return base
+
+    def _format_lyrics(self, text: str) -> str:
+        """把歌词切成短句并用停顿符连接，让合成有换气与乐句感。"""
+        raw = re.sub(r"[，,、；;：:]+", "\n", text or "")
+        raw = re.sub(r"[。！？!?]+", "\n", raw)
+        lines = [line.strip(" .~～…") for line in raw.splitlines()]
+        lines = [line for line in lines if line]
+        if not lines:
+            return (text or "").strip()
+        return "，".join(lines[:8])
 
     _EMOJI_RE = re.compile(
         "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\uFE0F\u200D\u2190-\u21FF\u2B00-\u2BFF]+"
@@ -138,7 +186,9 @@ class VoiceMixin(SuiteBase):
         t = re.sub(r"[。！？]{2,}", "。", t)
         return t.strip("，。；;、 ")
 
-    async def _breeze_tts(self, text: str, out_path: str, emotion: str = "normal") -> str:
+    async def _breeze_tts(
+        self, text: str, out_path: str, emotion: str = "normal", style: str = ""
+    ) -> str:
         """直连 BreezeBlue TTS API。支持预设 / 设计 / 克隆音色的 voice_id。"""
         key = str(self._voice_cfg("breeze_api_key", "") or "").strip()
         voice_id = str(self._voice_cfg("breeze_voice_id", "") or "").strip()
@@ -150,7 +200,7 @@ class VoiceMixin(SuiteBase):
         model = str(self._voice_cfg("breeze_model", "breeze-tts-2") or "breeze-tts-2").strip()
         user_instructions = str(self._voice_cfg("tts_instructions", "") or "").strip()
         # emotion 映射成 BreezeBlue instructions，用户配置页的优先
-        emo_instr = self._EMOTION_INSTRUCTIONS.get(emotion, "")
+        emo_instr = self._emotion_instruction(emotion, style)
         if emo_instr and not user_instructions:
             instructions = emo_instr
         elif emo_instr and user_instructions:
@@ -185,7 +235,9 @@ class VoiceMixin(SuiteBase):
                 f.write(resp.content)
         return out_path
 
-    async def _mimo_tts(self, text: str, out_path: str, emotion: str = "normal") -> str:
+    async def _mimo_tts(
+        self, text: str, out_path: str, emotion: str = "normal", style: str = ""
+    ) -> str:
         """直连小米 MiMo 原生 TTS（chat/completions + audio 参数，模型 mimo-v2.5-tts）。"""
         import base64 as _b64
 
@@ -200,7 +252,7 @@ class VoiceMixin(SuiteBase):
         voice = str(self._voice_cfg("mimo_tts_voice", "mimo_default") or "mimo_default").strip()
 
         user_instructions = str(self._voice_cfg("tts_instructions", "") or "").strip()
-        emo_instr = self._EMOTION_INSTRUCTIONS.get(emotion, "")
+        emo_instr = self._emotion_instruction(emotion, style)
         if emo_instr and user_instructions:
             instructions = f"{user_instructions}，{emo_instr}"
         else:
@@ -244,20 +296,25 @@ class VoiceMixin(SuiteBase):
             f.write(_b64.b64decode(audio_b64))
         return out_path
 
-    async def _synthesize(self, text: str, emotion: str = "normal") -> str:
+    async def _synthesize(
+        self, text: str, emotion: str = "normal", style: str = ""
+    ) -> str:
         """合成到临时 wav 路径，返回路径。tts_backend=mimo 走 MiMo，否则内置 provider → BreezeBlue。"""
         if not text or not text.strip():
             raise ValueError("要合成的文本是空的")
         text = self._clean_tts_text(text)
         if not text:
             raise ValueError("清洗后没有可朗读的文本")
+        if emotion == "sing":
+            text = self._format_lyrics(text)
+            style = style or str(self._voice_cfg("sing_style", "pop") or "pop").strip()
         tmp = tempfile.NamedTemporaryFile(prefix="dafeiyu_voice_", suffix=".wav", delete=False)
         tmp.close()
         path = tmp.name
 
         backend = str(self._voice_cfg("tts_backend", "breeze") or "breeze").strip().lower()
         if backend == "mimo":
-            await self._mimo_tts(text, path, emotion)
+            await self._mimo_tts(text, path, emotion, style)
             return path
 
         # 1. 优先 AstrBot 内置 TTS provider
@@ -276,7 +333,7 @@ class VoiceMixin(SuiteBase):
             logger.warning(f"[voice] 内置 TTS provider 失败，回退 BreezeBlue: {exc}")
 
         # 2. 走 BreezeBlue 直连
-        await self._breeze_tts(text, path, emotion)
+        await self._breeze_tts(text, path, emotion, style)
         return path
 
     # ---------------- STT 后端 -----------------------------
@@ -808,15 +865,11 @@ class VoiceMixin(SuiteBase):
         if not raw:
             raw = "小肥鱼摇摇尾巴，陪主人到天亮~"
 
-        # 把歌词润色一下：短句 + 情绪提示
-        polished = re.sub(r"[，,]", "，", raw)
-        # 在逗号/句号后插一个停顿标记
-        for punc in ["，", "。", "！", "？"]:
-            polished = polished.replace(punc, punc + "…")
-        polished = polished[:400]
+        # 歌词切句、停顿与换气交给 _synthesize / _format_lyrics 处理
+        raw = raw[:400]
 
         try:
-            mp3_path = await self._synthesize(polished, emotion="sing")
+            mp3_path = await self._synthesize(raw, emotion="sing")
         except Exception as exc:
             logger.warning(f"[voice] tool_sing 合成失败: {exc}")
             return '这次唱不出来，跟用户说一句"等会儿再唱"，别解释原因。'
@@ -857,12 +910,8 @@ class VoiceMixin(SuiteBase):
         if not text:
             yield event.plain_result("用法：/唱 歌词或歌名")
             return
-        polished = re.sub(r"[，,]", "，", text)
-        for punc in ["，", "。", "！", "？"]:
-            polished = polished.replace(punc, punc + "…")
-        polished = polished[:400]
         try:
-            mp3_path = await self._synthesize(polished, emotion="sing")
+            mp3_path = await self._synthesize(text[:400], emotion="sing")
         except Exception as exc:
             logger.warning(f"[voice] /唱 合成失败: {exc}")
             yield event.plain_result("唱不出来了，等会儿再试。")

@@ -208,13 +208,29 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
             <option value="sad">难过</option>
             <option value="angry">生气</option>
             <option value="soft">撒娇</option>
+            <option value="shy">害羞</option>
+            <option value="scared">害怕</option>
+            <option value="tired">疲惫</option>
+            <option value="excited">兴奋</option>
+            <option value="playful">调皮</option>
+            <option value="tsundere">傲娇</option>
+            <option value="surprised">惊讶</option>
             <option value="sing">唱歌</option>
           </select>
         </div>
-        <div class="field"><label>&nbsp;</label><div class="row">
-          <button class="primary" id="btn-voice-speak">合成语音</button>
-          <button id="btn-voice-sing">唱出来</button>
-        </div></div>
+        <div class="field">
+          <label>唱法（唱歌时生效）</label>
+          <select id="voice-style">
+            <option value="">跟随配置</option>
+            <option value="pop">流行</option>
+            <option value="lyrical">抒情慢歌</option>
+            <option value="child">儿歌</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="btn-voice-speak">合成语音</button>
+        <button id="btn-voice-sing">唱出来</button>
       </div>
       <div id="voice-result"></div>
       <hr>
@@ -723,11 +739,18 @@ function bindActions() {
 
   // voice
   $("btn-voice-speak").addEventListener("click", () => run($("btn-voice-speak"), async () => {
-    const res = await act("voice", "speak", { text: $("voice-text").value, emotion: $("voice-emotion").value });
+    const res = await act("voice", "speak", {
+      text: $("voice-text").value,
+      emotion: $("voice-emotion").value,
+      style: $("voice-style").value,
+    });
     showAudio(res);
   }, "语音已合成"));
   $("btn-voice-sing").addEventListener("click", () => run($("btn-voice-sing"), async () => {
-    const res = await act("voice", "sing", { text: $("voice-text").value });
+    const res = await act("voice", "sing", {
+      text: $("voice-text").value,
+      style: $("voice-style").value,
+    });
     showAudio(res);
   }, "歌声已合成"));
   $("btn-voice-stt").addEventListener("click", () => run($("btn-voice-stt"), async () => {
