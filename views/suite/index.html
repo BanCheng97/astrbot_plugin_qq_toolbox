@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>大肥鱼 QQ 工具箱（合集）</title>
+<!-- AstrBot 默认把视图桥注入到 </body> 之前，会晚于下方内联脚本执行，这里显式提前引入 -->
+<script src="/api/plugin/page/bridge-sdk.js"></script>
 <style>
 :root{
   --bg:#f5f7fb; --card:#ffffff; --text:#1c2230; --muted:#6b7280;
@@ -317,7 +319,9 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
 
 <script>
 /* ---------------- bridge ---------------- */
-const bridge = window.AstrBotPluginView || window.AstrBotPluginPage || null;
+function bridgeNow() {
+  try { return window.AstrBotPluginView || window.AstrBotPluginPage || null; } catch (e) { return null; }
+}
 
 const mockBridge = {
   ready: async () => ({ pluginName: "astrbot_plugin_qq_toolbox", displayName: "大肥鱼 QQ 工具箱（合集）", isDark: false, locale: "zh-CN" }),
@@ -328,17 +332,48 @@ const mockBridge = {
   t: (k, f) => f,
 };
 
-const api = bridge || mockBridge;
-const hasBridge = !!bridge;
+let bridge = bridgeNow();
+let api = bridge || mockBridge;
+/* 只有拿到父页面下发的上下文，才认定视图桥真的可用 */
+let hasBridge = false;
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(label + "超时，请检查 AstrBot WebUI 连接")), ms)),
+  ]);
+}
+
+/* 视图桥脚本可能比本脚本晚一步执行，这里轮询等一小会儿 */
+async function ensureBridge(waitMs) {
+  if (bridge) return true;
+  const deadline = Date.now() + (waitMs || 3000);
+  while (Date.now() < deadline) {
+    const found = bridgeNow();
+    if (found) { bridge = found; return true; }
+    await new Promise(r => setTimeout(r, 50));
+  }
+  return false;
+}
 
 async function boot() {
-  try {
-    const ctx = await api.ready();
-    if (ctx && ctx.isDark) document.body.classList.add("dark");
-  } catch (e) { /* ignore */ }
   bindTabs();
   bindActions();
+  await ensureBridge(4000);
+  if (bridge) {
+    try {
+      const ctx = await withTimeout(bridge.ready(), 5000, "视图桥初始化");
+      hasBridge = true;
+      api = bridge;
+      if (ctx && ctx.isDark) document.body.classList.add("dark");
+    } catch (e) {
+      console.warn("[suite] 视图桥未就绪：", e && e.message);
+    }
+  }
   await refreshAll();
+  if (!hasBridge) {
+    toast("未检测到 AstrBot 视图桥，请从 AstrBot WebUI 的插件详情页打开（当前为演示模式）", "err");
+  }
 }
 
 function $(id) { return document.getElementById(id); }
@@ -360,11 +395,11 @@ function showPre(id, value) {
 }
 async function get(endpoint, params) {
   if (!hasBridge) throw new Error("未检测到 AstrBot 视图桥，当前为演示模式");
-  return api.apiGet(endpoint, params || {});
+  return withTimeout(api.apiGet(endpoint, params || {}), 60000, "读取请求");
 }
 async function post(endpoint, body) {
   if (!hasBridge) throw new Error("未检测到 AstrBot 视图桥，当前为演示模式");
-  return api.apiPost(endpoint, body || {});
+  return withTimeout(api.apiPost(endpoint, body || {}), 120000, "操作请求");
 }
 async function act(module, action, params) {
   return post("action", { module, action, params: params || {} });
@@ -699,7 +734,7 @@ function bindActions() {
     const file = $("voice-file").files[0];
     if (!file) throw new Error("请先选择一个音频文件");
     if (!hasBridge) throw new Error("演示模式无法上传文件");
-    const res = await api.upload("voice/stt", file);
+    const res = await withTimeout(api.upload("voice/stt", file), 180000, "语音上传");
     showPre("voice-stt-out", res.text || res);
   }, "识别完成"));
 
