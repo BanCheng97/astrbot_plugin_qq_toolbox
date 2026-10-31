@@ -1,7 +1,7 @@
 {
   "views": {
     "suite": {
-      "title": "Dafeiyu Toolbox Console",
+      "title": "Dafeiyu Console",
       "description": "Unified console for complaints, DeepSeek usage, voice and the QQ toolbox"
     }
   }

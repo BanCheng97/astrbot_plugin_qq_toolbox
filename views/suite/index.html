@@ -8,92 +8,124 @@
 <script src="/api/plugin/page/bridge-sdk.js"></script>
 <style>
 :root{
-  --bg:#f5f7fb; --card:#ffffff; --text:#1c2230; --muted:#6b7280;
-  --line:#e6e9f0; --accent:#4f7cff; --accent-soft:#eaf0ff;
+  --bg:#f4f6fb; --card:#ffffff; --text:#1b2333; --muted:#667085;
+  --line:#e6e9f2; --accent:#4f7cff; --accent2:#8f6bff; --accent-soft:#eaf0ff;
   --ok:#10b981; --warn:#f59e0b; --bad:#ef4444;
-  --shadow:0 1px 2px rgba(16,24,40,.06),0 8px 24px rgba(16,24,40,.04);
-  --radius:14px;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 10px 28px rgba(16,24,40,.06);
+  --shadow-hover:0 2px 4px rgba(16,24,40,.06),0 16px 40px rgba(79,124,255,.12);
+  --radius:16px;
 }
 body.dark{
-  --bg:#0f1420; --card:#171d2b; --text:#e8ecf5; --muted:#93a0b8;
-  --line:#263046; --accent:#6f94ff; --accent-soft:#1d2a48;
+  --bg:#0d1320; --card:#161d2e; --text:#e9edf6; --muted:#94a1b9;
+  --line:#263048; --accent:#7ea0ff; --accent2:#a78bff; --accent-soft:#1e2c4e;
   --ok:#34d399; --warn:#fbbf24; --bad:#f87171;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.25);
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 12px 32px rgba(0,0,0,.28);
+  --shadow-hover:0 2px 6px rgba(0,0,0,.4),0 18px 44px rgba(126,160,255,.14);
 }
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+html{scroll-behavior:smooth}
+::selection{background:var(--accent-soft);color:var(--accent)}
+html,body{margin:0;padding:0;background:
+  radial-gradient(1200px 400px at 80% -10%,var(--accent-soft),transparent 60%),var(--bg);
+  color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-  font-size:14px;line-height:1.5}
-.wrap{max-width:1180px;margin:0 auto;padding:20px 18px 40px}
-header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
-.brand{display:flex;align-items:center;gap:11px}
-.logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#8f6bff);
-  display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px}
-h1{font-size:19px;margin:0;font-weight:650}
+  font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 18px 48px}
+header{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  margin:0 -18px 16px;padding:12px 18px;
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{width:40px;height:40px;border-radius:13px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:grid;place-items:center;color:#fff;font-weight:700;font-size:18px;
+  box-shadow:0 4px 14px rgba(79,124,255,.35)}
+h1{font-size:19px;margin:0;font-weight:650;letter-spacing:.2px}
 .sub{color:var(--muted);font-size:12px;margin-top:2px}
 .spacer{flex:1}
 button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--text);
-  padding:8px 14px;border-radius:10px;cursor:pointer;transition:.15s;white-space:nowrap}
-button:hover{border-color:var(--accent);color:var(--accent)}
-button:disabled{opacity:.55;cursor:not-allowed}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-button.primary:hover{filter:brightness(1.05);color:#fff}
+  padding:8px 15px;border-radius:10px;cursor:pointer;white-space:nowrap;
+  transition:border-color .18s,color .18s,box-shadow .18s,transform .08s,background .18s}
+button:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 2px 10px rgba(79,124,255,.15)}
+button:active{transform:scale(.97)}
+button:disabled{opacity:.55;cursor:not-allowed;box-shadow:none;transform:none}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#fff;
+  box-shadow:0 3px 12px rgba(79,124,255,.3)}
+button.primary:hover{filter:brightness(1.07);color:#fff}
 button.ghost{background:transparent}
 button.danger{border-color:var(--bad);color:var(--bad)}
-button.danger:hover{background:var(--bad);color:#fff}
-nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
-nav button{padding:8px 16px;border-radius:999px;background:transparent}
-nav button.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+button.danger:hover{background:var(--bad);color:#fff;box-shadow:0 2px 10px rgba(239,68,68,.25)}
+nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+nav button{padding:8px 17px;border-radius:999px;background:transparent;border-color:transparent;color:var(--muted)}
+nav button:hover{color:var(--accent);background:var(--accent-soft);box-shadow:none}
+nav button.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;
+  color:#fff;font-weight:600;box-shadow:0 3px 12px rgba(79,124,255,.3)}
 .grid{display:grid;gap:14px}
 .cards{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-  box-shadow:var(--shadow);padding:16px}
-.card h3{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:8px}
+  box-shadow:var(--shadow);padding:18px;transition:box-shadow .2s,transform .2s}
+.card:hover{box-shadow:var(--shadow-hover);transform:translateY(-1px)}
+.card h3{margin:0 0 12px;font-size:15px;display:flex;align-items:center;gap:8px}
 .card h3 .tag{margin-left:auto}
-.tag{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:600}
+.tag{font-size:11px;padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:600;letter-spacing:.2px}
 .tag.off{background:rgba(239,68,68,.12);color:var(--bad)}
-.tag.ok{background:rgba(16,185,129,.13);color:var(--ok)}
-.kv{display:grid;grid-template-columns:1fr auto;gap:5px 12px;font-size:13px}
+.tag.ok{background:rgba(16,185,129,.14);color:var(--ok)}
+.kv{display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-size:13px}
 .kv .k{color:var(--muted)}
 .kv .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;overflow-wrap:anywhere}
 .section{display:none}
-.section.active{display:block}
+.section.active{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
-.field label{font-size:12.5px;color:var(--muted)}
+.field label{font-size:12.5px;color:var(--muted);font-weight:500}
 .field .hint{font-size:11.5px;color:var(--muted)}
 input,select,textarea{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);
-  border-radius:10px;padding:9px 11px;outline:none;width:100%}
-input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  border-radius:10px;padding:9px 12px;outline:none;width:100%;
+  transition:border-color .18s,box-shadow .18s,background .18s}
+input:hover,select:hover,textarea:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);background:var(--card)}
 textarea{min-height:76px;resize:vertical}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 pre{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;
-  overflow:auto;max-height:340px;font-size:12.5px;white-space:pre-wrap;word-break:break-word;margin:10px 0 0}
-details{border:1px solid var(--line);border-radius:12px;padding:0;margin-top:14px;background:var(--card)}
-details>summary{cursor:pointer;padding:13px 16px;font-weight:600;user-select:none;list-style:none}
+  overflow:auto;max-height:340px;font-size:12.5px;white-space:pre-wrap;word-break:break-word;margin:10px 0 0;
+  font-family:ui-monospace,SFMono-Regular,Consolas,monospace;line-height:1.5}
+details{border:1px solid var(--line);border-radius:12px;padding:0;margin-top:14px;background:var(--card);
+  overflow:hidden;transition:box-shadow .2s}
+details:hover{box-shadow:var(--shadow)}
+details>summary{cursor:pointer;padding:13px 16px;font-weight:600;user-select:none;list-style:none;transition:background .15s}
+details>summary:hover{background:var(--accent-soft)}
 details>summary::-webkit-details-marker{display:none}
-details>summary:before{content:"⚙";margin-right:8px;color:var(--muted)}
+details>summary:before{content:"⚙";margin-right:8px;color:var(--accent);display:inline-block;transition:transform .2s}
 details[open]>summary{border-bottom:1px solid var(--line)}
+details[open]>summary:before{transform:rotate(90deg)}
 .details-body{padding:16px}
-.group{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.group{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;transition:border-color .18s}
+.group:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .group>h4{margin:0 0 12px;font-size:13.5px;color:var(--accent)}
 .group .group{border-style:dashed;margin-bottom:10px;padding:12px}
 .note{font-size:12px;color:var(--muted);margin-top:8px}
 .toast{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:99}
 .toast .item{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);
-  box-shadow:var(--shadow);padding:10px 14px;border-radius:10px;max-width:360px;font-size:13px;animation:in .2s ease}
+  box-shadow:var(--shadow-hover);padding:11px 15px;border-radius:12px;max-width:360px;font-size:13px;animation:in .22s ease}
 .toast .item.err{border-left-color:var(--bad)}
 .toast .item.ok{border-left-color:var(--ok)}
-@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 audio{width:100%;margin-top:10px}
-.list{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow:auto;margin-top:10px}
-.list .item{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12.5px;background:var(--bg)}
+.list{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow:auto;margin-top:10px;padding-right:2px}
+.list::-webkit-scrollbar,pre::-webkit-scrollbar{width:8px;height:8px}
+.list::-webkit-scrollbar-thumb,pre::-webkit-scrollbar-thumb{background:var(--line);border-radius:99px}
+.list::-webkit-scrollbar-thumb:hover,pre::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+.list .item{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12.5px;background:var(--bg);
+  transition:border-color .15s,box-shadow .15s}
+.list .item:hover{border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
 .list .item b{color:var(--accent)}
 .mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 .empty{color:var(--muted);font-size:12.5px;padding:8px 0}
 hr{border:0;border-top:1px solid var(--line);margin:16px 0}
-@media (max-width:720px){.two,.three{grid-template-columns:1fr}}
+@media (max-width:720px){.two,.three{grid-template-columns:1fr}header{position:static}}
 </style>
 </head>
 <body>
@@ -103,7 +135,7 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
       <div class="logo">鱼</div>
       <div>
         <h1>大肥鱼工具箱</h1>
-        <div class="sub" id="subtitle">告状 · 用量 · 语音 · QQ 空间 · 记忆 · 认主，一个插件全搞定</div>
+        <div class="sub" id="subtitle">告状 · 用量 · 语音 · QQ 助手 · 记忆 · 认主，一个插件全搞定</div>
       </div>
     </div>
     <div class="spacer"></div>
@@ -117,7 +149,7 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
     <button data-tab="voice">语音</button>
     <button data-tab="memory">记忆</button>
     <button data-tab="master">认主</button>
-    <button data-tab="toolbox">QQ 工具箱</button>
+    <button data-tab="toolbox">QQ 助手</button>
     <button data-tab="records">记录</button>
   </nav>
 
@@ -291,7 +323,7 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
 
   <section id="sec-toolbox" class="section">
     <div class="card">
-      <h3>QQ 资料与空间 <span class="tag" id="toolbox-tag">—</span></h3>
+      <h3>QQ 助手 <span class="tag" id="toolbox-tag">—</span></h3>
       <div class="kv" id="toolbox-kv"></div>
       <hr>
       <div class="two">
@@ -517,11 +549,11 @@ async function loadStatus() {
 
 function demoStatus() {
   return {
-    plugin: { version: "2.3.0", handlers: { total: 57 }, llm_tools: { total: 16 }, platforms: ["aiocqhttp"] },
+    plugin: { version: "2.3.1", handlers: { total: 57 }, llm_tools: { total: 16 }, platforms: ["aiocqhttp"] },
     complain: { enabled: true, owner_configured: false, guardians: 2, today: 3, today_relay: 1, records: 9, cooldown: 600, daily_limit: 5 },
     usage: { enabled: true, api_key_configured: false, alert_enabled: true, alert_threshold: 5, check_interval_hours: 6, task_running: false },
-    voice: { listen_enabled: true, speak_enabled: true, sing_enabled: true, backend: "breeze", speak_prob_percent: 10 },
-    toolbox: { admin_only: true, cached_sessions: 1, cooldown_remaining: 0, today: { feed: 1, like: 2, comment: 1, delete: 0, card_like: 1 }, history: 8, domain: "user.qzone.qq.com" },
+    voice: { enabled: true, listen_enabled: true, speak_enabled: true, sing_enabled: true, backend: "breeze", speak_prob_percent: 10 },
+    toolbox: { enabled: true, admin_only: true, cached_sessions: 1, cooldown_remaining: 0, today: { feed: 1, like: 2, comment: 1, delete: 0, card_like: 1 }, history: 8, domain: "user.qzone.qq.com" },
     memory: { enabled: true, inject_enabled: true, auto_extract: true, users: 2, facts: 7, pending: 0 },
     master: { enabled: true, inject_enabled: true, count: 2, max: 8, default_title: "主人" },
     runtime: { os: "linux", python: "3.11.9", silk: false, audioop: true, onebot: true, data_dir: "/data/data/com.astrbot/files/plugin_data" },
@@ -544,13 +576,13 @@ function renderOverview(data) {
       ["提醒阈值", (u.alert_threshold ?? 5) + " 元"],
       ["定时检查", (u.task_running ? "运行中 · " : "") + (u.check_interval_hours || 0) + " 小时"],
     ]],
-    ["语音", v.speak_enabled || v.listen_enabled, [
+    ["语音", v.enabled !== false, [
       ["识别 STT", v.listen_enabled ? "开启" : "关闭"],
       ["合成 TTS", v.speak_enabled ? "开启" : "关闭"],
       ["TTS 后端", v.backend || "breeze"],
       ["自动触发", (v.speak_prob_percent ?? 0) + "%"],
     ]],
-    ["QQ 工具箱", true, [
+    ["QQ 助手", t.enabled !== false, [
       ["空间域", t.domain || "—"],
       ["今日说说", (t.today && t.today.feed) || 0],
       ["今日点赞", (t.today && t.today.like) || 0],
@@ -609,7 +641,7 @@ function renderUsage(u) {
   ]);
 }
 function renderVoice(v) {
-  tag($("voice-tag"), !!(v.speak_enabled || v.listen_enabled));
+  tag($("voice-tag"), !!v.enabled);
   kv($("voice-kv"), [
     ["语音识别", v.listen_enabled ? "开启" : "关闭"],
     ["语音合成", v.speak_enabled ? "开启" : "关闭"],
@@ -620,7 +652,7 @@ function renderVoice(v) {
   ]);
 }
 function renderToolbox(t) {
-  tag($("toolbox-tag"), true);
+  tag($("toolbox-tag"), !!t.enabled);
   const today = t.today || {};
   kv($("toolbox-kv"), [
     ["空间域", t.domain || "—"],
@@ -702,18 +734,50 @@ function renderMasterList(items, path) {
         <button data-master-del="${esc(item.qq)}">取消认主</button>
       </div>
     </div>`).join("");
-  box.querySelectorAll("[data-master-edit]").forEach(btn => btn.addEventListener("click", async () => {
-    const next = prompt(`把 ${btn.dataset.masterEdit} 的称呼改成什么？可用 / 分隔多个叫法`, "");
-    if (!next) return;
-    try {
-      await post("master/update", { qq: btn.dataset.masterEdit, title: next });
-      await loadMaster();
-      await loadStatus();
-      toast("已改称呼", "ok");
-    } catch (e) { toast(e.message || "改称呼失败", "err"); }
+  box.querySelectorAll("[data-master-edit]").forEach(btn => btn.addEventListener("click", () => {
+    // WebView2 不支持 window.prompt，改为行内编辑
+    const row = btn.closest(".note");
+    const item = items.find(one => String(one.qq) === btn.dataset.masterEdit);
+    const current = item ? ((item.aliases || []).join("/") || item.title || "") : "";
+    row.innerHTML = `
+      <input data-master-input style="flex:1" value="${esc(current)}" placeholder="新称呼，可用 / 分隔多个叫法" />
+      <button class="primary" data-master-save>保存</button>
+      <button data-master-cancel>取消</button>`;
+    const input = row.querySelector("[data-master-input]");
+    input.focus();
+    input.select();
+    const save = async () => {
+      const next = input.value.trim();
+      if (!next) { toast("称呼不能为空", "err"); return; }
+      try {
+        await post("master/update", { qq: btn.dataset.masterEdit, title: next });
+        await loadMaster();
+        await loadStatus();
+        toast("已改称呼", "ok");
+      } catch (e) { toast(e.message || "改称呼失败", "err"); }
+    };
+    row.querySelector("[data-master-save]").addEventListener("click", save);
+    row.querySelector("[data-master-cancel]").addEventListener("click", () => loadMaster());
+    input.addEventListener("keydown", ev => {
+      if (ev.key === "Enter") save();
+      if (ev.key === "Escape") loadMaster();
+    });
   }));
   box.querySelectorAll("[data-master-del]").forEach(btn => btn.addEventListener("click", async () => {
-    if (!confirm(`确定取消 ${btn.dataset.masterDel} 的主人身份吗？`)) return;
+    // WebView2 的 confirm 不可靠，改为二次点击确认
+    if (btn.dataset.armed !== "1") {
+      btn.dataset.armed = "1";
+      btn.classList.add("danger");
+      btn.textContent = "再点一次确认取消";
+      setTimeout(() => {
+        if (btn.isConnected) {
+          btn.dataset.armed = "";
+          btn.classList.remove("danger");
+          btn.textContent = "取消认主";
+        }
+      }, 3000);
+      return;
+    }
     try {
       await post("master/delete", { qq: btn.dataset.masterDel });
       await loadMaster();

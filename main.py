@@ -69,7 +69,7 @@ from .modules.base import MISSING, flatten_dict, nested_get, nested_set, to_bool
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
 ALIAS_NAMES = ("astrbot_plugin_dafeiyu_suite", "astrbot_plugin_qq_toolbox")
-SUITE_VERSION = "2.3.0"
+SUITE_VERSION = "2.3.1"
 
 PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_PATH = os.path.join(PLUGIN_ROOT, "_conf_schema.json")
@@ -276,6 +276,10 @@ class DafeiyuSuitePlugin(
         self._normalize_percent_config()
         self._register_web_apis()
         self._rehome_handlers()
+        logger.info(
+            "[suite] 大肥鱼工具箱已加载：请到 AstrBot 插件详情页打开「大肥鱼控制台」，"
+            "在里面配置 API Key、主人、称呼与各模块开关"
+        )
 
     # ==================== 生命周期 ====================
 
@@ -564,6 +568,7 @@ class DafeiyuSuitePlugin(
                 "last_alert": usage_state.get("alert") or {},
             },
             "voice": {
+                "enabled": bool(self._voice_cfg("enabled", True)),
                 "listen_enabled": bool(self._voice_cfg("listen_enabled", True)),
                 "speak_enabled": bool(self._voice_cfg("speak_enabled", True)),
                 "sing_enabled": bool(self._voice_cfg("sing_enabled", True)),
@@ -578,6 +583,7 @@ class DafeiyuSuitePlugin(
                 "speak_prob_percent": to_int(self._voice_cfg("speak_prob_percent", 10), 10),
             },
             "toolbox": {
+                "enabled": bool(self._toolbox_cfg("enabled", True)),
                 "admin_only": bool(self._toolbox_cfg("admin_only", True)),
                 "cached_sessions": len(self._toolbox_sess_cache),
                 "cooldown_remaining": self._cooldown_remaining(),

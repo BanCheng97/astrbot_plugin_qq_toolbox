@@ -279,6 +279,19 @@
     "type": "object",
     "hint": "收到的语音自动转文字；回复可合成语音发送，支持歌唱模式。",
     "items": {
+      "basic": {
+        "description": "总开关",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "enabled": {
+            "description": "启用语音模块",
+            "type": "bool",
+            "hint": "总开关：关掉后语音识别、语音合成、唱歌、/说 /唱 指令全部停用",
+            "default": true
+          }
+        }
+      },
       "listen": {
         "description": "语音识别（STT）",
         "type": "object",
@@ -449,15 +462,21 @@
     }
   },
   "toolbox": {
-    "description": "QQ 资料与空间",
+    "description": "QQ 助手",
     "type": "object",
     "hint": "改昵称、改签名、发说说、点赞评论删说说、名片赞；需要 aiocqhttp（NapCat / LLOneBot）。",
     "items": {
       "basic": {
-        "description": "权限与主人",
+        "description": "开关与权限",
         "type": "object",
         "hint": "",
         "items": {
+          "enabled": {
+            "description": "启用 QQ 助手",
+            "type": "bool",
+            "hint": "总开关：关掉后所有 QQ 操作（LLM 工具与斜杠指令）都停用，也不再缓存图片和注入提示",
+            "default": true
+          },
           "owner_session": {
             "description": "主人的私聊会话",
             "type": "string",

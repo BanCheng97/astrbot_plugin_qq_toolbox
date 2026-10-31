@@ -21,7 +21,7 @@ import tempfile
 from typing import Any
 
 from astrbot import logger
-from astrbot.api.event import AstrMessageEvent, MessageChain, filter
+from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import Plain, Record
 
 from .base import SuiteBase, to_int, to_float
@@ -88,6 +88,9 @@ class VoiceMixin(SuiteBase):
             if state_val:
                 return state_val
         return self.cfg("voice", key, default)
+
+    def _voice_enabled(self) -> bool:
+        return bool(self._voice_cfg("enabled", True))
 
     # ---------------- 情绪判定 -----------------------------
 
@@ -743,6 +746,8 @@ class VoiceMixin(SuiteBase):
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_voice_message(self, event: AstrMessageEvent):
         """收到语音消息时自动转文字，再把文字作为用户输入继续处理。"""
+        if not self._voice_enabled():
+            return
         if not self._voice_cfg("listen_enabled", True):
             return
         segments = self._message_segments(event)
@@ -797,6 +802,8 @@ class VoiceMixin(SuiteBase):
     @filter.on_decorating_result()
     async def auto_tts_reply(self, event: AstrMessageEvent):
         """LLM 回复后可选地替换成语音发送。"""
+        if not self._voice_enabled():
+            return
         if not self._voice_cfg("speak_enabled", True):
             return
         # 唱歌意图：绕过概率，强制走 TTS
@@ -851,6 +858,8 @@ class VoiceMixin(SuiteBase):
         Args:
             text(string): 要说出来的文本内容
         '''
+        if not self._voice_enabled():
+            return '语音功能整个关着，跟用户说一句"现在说不了话"带过就行。'
         if not self._voice_cfg("speak_enabled", True):
             return '说话功能暂时关着，跟用户说一句"等会儿再说"带过就行。'
         text = (text or "").strip()
@@ -880,6 +889,8 @@ class VoiceMixin(SuiteBase):
         Args:
             lyrics(string): 要唱的歌词或歌名，最多 200 字
         '''
+        if not self._voice_enabled():
+            return '语音功能整个关着，跟用户说一句"现在唱不了"带过就行。'
         if not self._voice_cfg("sing_enabled", True):
             return '唱歌功能暂时关着，跟用户说一句"下次再唱"带过就行。'
         raw = (lyrics or "").strip()
@@ -907,6 +918,9 @@ class VoiceMixin(SuiteBase):
 
     @filter.command("说")
     async def cmd_say(self, event: AstrMessageEvent):
+        if not self._voice_enabled():
+            yield event.plain_result("语音模块已关闭，去控制台「语音」页签打开总开关再用。")
+            return
         text = self._extract_arg(event)
         if not text:
             yield event.plain_result("用法：/说 你想说的话")
@@ -927,6 +941,9 @@ class VoiceMixin(SuiteBase):
 
     @filter.command("唱")
     async def cmd_sing(self, event: AstrMessageEvent):
+        if not self._voice_enabled():
+            yield event.plain_result("语音模块已关闭，去控制台「语音」页签打开总开关再用。")
+            return
         text = self._extract_arg(event)
         if not text:
             yield event.plain_result("用法：/唱 歌词或歌名")

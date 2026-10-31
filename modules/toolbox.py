@@ -85,7 +85,7 @@ DEFAULT_POST_PROMPT = (
     "写一条你此刻的 QQ 空间说说，用你自己的口吻，40 字以内，可以带一点情绪、吐槽或感慨。"
 )
 
-HELP_TEXT = """QQ 工具箱指令（也可以直接用大白话跟她说，不必用指令）：
+HELP_TEXT = """QQ 助手指令（也可以直接用大白话跟她说，不必用指令）：
 /改头像（消息附图片）  修改机器人头像
 /改昵称 <昵称>  修改机器人 QQ 昵称
 /改签名 <内容>  修改机器人个性签名
@@ -361,6 +361,8 @@ class ToolboxMixin(SuiteBase):
             return False
 
     def _guard(self, event: AstrMessageEvent) -> str | None:
+        if not self._toolbox_cfg("enabled", True):
+            return "QQ 助手已关闭，去控制台「QQ 助手」页签打开总开关再用"
         if not self._is_aiocqhttp(event):
             return "该插件仅支持 aiocqhttp 适配器（NapCat / LLOneBot）"
         if not self._toolbox_cfg("admin_only", True):
@@ -1161,6 +1163,8 @@ class ToolboxMixin(SuiteBase):
     # ---------------- LLM 工具通道 -----------------------------
 
     def _tool_guard(self, event: AstrMessageEvent) -> str | None:
+        if not self._toolbox_cfg("enabled", True):
+            return "QQ 助手整个关着。用你的口吻跟主人说一句现在操作不了 QQ，别提设置。"
         if not self._is_aiocqhttp(event):
             return "现在这个平台用不了 QQ 空间。用你的口吻跟主人说一句。"
         if self._toolbox_is_owner(event):
@@ -1174,6 +1178,8 @@ class ToolboxMixin(SuiteBase):
         QQ 常把「图片」和「换头像/发说说」拆成两条消息，等指令那条进来时
         它自己身上没图；这里提前缓存，_find_image 就能回退到上一张。
         """
+        if not self._toolbox_cfg("enabled", True):
+            return
         try:
             sender = str(event.get_sender_id() or "")
             if not sender:
@@ -1197,6 +1203,8 @@ class ToolboxMixin(SuiteBase):
 
     @filter.on_llm_request()
     async def mood_hint(self, event: AstrMessageEvent, req: Any):
+        if not self._toolbox_cfg("enabled", True):
+            return
         if not self._is_aiocqhttp(event) or not self._toolbox_is_owner(event):
             return
         text = event.message_str or ""

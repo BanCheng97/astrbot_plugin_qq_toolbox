@@ -1,8 +1,8 @@
 {
   "views": {
     "suite": {
-      "title": "大肥鱼工具箱控制台",
-      "description": "统一查看与操作告状、DeepSeek 用量、语音、QQ 工具箱四个模块"
+      "title": "大肥鱼控制台",
+      "description": "统一查看与操作告状、DeepSeek 用量、语音、QQ 助手四个模块"
     }
   }
 }
