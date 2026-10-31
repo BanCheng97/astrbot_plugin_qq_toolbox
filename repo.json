@@ -2,18 +2,18 @@
   "$meta": {
     "schema_version": 1,
     "name": "大肥鱼工具箱",
-    "version": "2026-10-30",
+    "version": "2026-10-31",
     "homepage": "https://github.com/BanCheng97",
     "repository": "https://github.com/BanCheng97/astrbot_plugin_qq_toolbox",
-    "description": "告状传话、DeepSeek 用量查询、语音听写与多情绪合成（含唱歌）、QQ 头像昵称签名与说说互动、长期记忆，内置统一可视化控制台",
-    "updated_at": "2026-10-30T00:00:00Z"
+    "description": "告状传话、DeepSeek 用量查询、语音听写与多情绪合成（含唱歌）、QQ 头像昵称签名与说说互动、长期记忆、认主（多位主人与称呼），内置统一可视化控制台",
+    "updated_at": "2026-10-31T00:00:00Z"
   },
   "半城/astrbot_plugin_dafeiyu_toolbox": {
     "author": "半城",
     "name": "astrbot_plugin_dafeiyu_toolbox",
-    "version": "2.2.5",
+    "version": "2.3.0",
     "repo": "https://github.com/BanCheng97/astrbot_plugin_qq_toolbox",
-    "desc": "被欺负会私聊家人告状、家人间传话；查 DeepSeek 余额与低余额提醒；语音听写/合成（13 种情绪、唱歌三种唱法）；QQ 头像昵称签名、名片赞、发说说、AI 写说说、说说互动；长期记忆（本地 JSON 存短事实、自动抽取、回复前注入）；内置统一可视化控制台",
+    "desc": "被欺负会私聊家人告状、家人间传话；查 DeepSeek 余额与低余额提醒；语音听写/合成（13 种情绪、唱歌三种唱法）；QQ 头像昵称签名、名片赞、发说说、AI 写说说、说说互动；长期记忆（本地 JSON 存短事实、自动抽取、回复前注入）；认主（多位主人、每人一个称呼、聊天前注入）；内置统一可视化控制台",
     "display_name": "大肥鱼工具箱",
     "support_platforms": ["aiocqhttp"]
   }

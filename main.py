@@ -57,12 +57,19 @@ except Exception:  # pragma: no cover - 仅用于老版本 / 本地单测
 
     request = _FallbackRequest()  # type: ignore[assignment]
 
-from .modules import ComplainMixin, MemoryMixin, ToolboxMixin, UsageMixin, VoiceMixin
+from .modules import (
+    ComplainMixin,
+    MasterMixin,
+    MemoryMixin,
+    ToolboxMixin,
+    UsageMixin,
+    VoiceMixin,
+)
 from .modules.base import MISSING, flatten_dict, nested_get, nested_set, to_bool, to_float, to_int
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
 ALIAS_NAMES = ("astrbot_plugin_dafeiyu_suite", "astrbot_plugin_qq_toolbox")
-SUITE_VERSION = "2.2.5"
+SUITE_VERSION = "2.3.0"
 
 PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_PATH = os.path.join(PLUGIN_ROOT, "_conf_schema.json")
@@ -245,6 +252,7 @@ class DafeiyuSuitePlugin(
     VoiceMixin,
     ToolboxMixin,
     MemoryMixin,
+    MasterMixin,
     Star,
 ):
     def __init__(self, context: Context | None = None, config: Any = None):
@@ -262,6 +270,7 @@ class DafeiyuSuitePlugin(
         self.setup_voice()
         self.setup_toolbox()
         self.setup_memory()
+        self.setup_master()
 
         self._migrate_legacy_config()
         self._normalize_percent_config()
@@ -446,6 +455,10 @@ class DafeiyuSuitePlugin(
             ("memory/delete", self.page_memory_delete, ["POST"], "删除一条记忆"),
             ("memory/clear", self.page_memory_clear, ["POST"], "清空记忆"),
             ("memory/import", self.page_memory_import, ["POST"], "导入记忆"),
+            ("master", self.page_master, ["GET"], "查看主人"),
+            ("master/add", self.page_master_add, ["POST"], "添加主人"),
+            ("master/update", self.page_master_update, ["POST"], "修改主人称呼"),
+            ("master/delete", self.page_master_delete, ["POST"], "取消认主"),
         ]
         for name in (PLUGIN_NAME, *ALIAS_NAMES):
             for route, handler, methods, desc in apis:
@@ -573,6 +586,7 @@ class DafeiyuSuitePlugin(
                 "domain": str(self._toolbox_cfg("qzone_domain", "user.qzone.qq.com") or ""),
             },
             "memory": self._memory_stats(),
+            "master": self._master_stats(),
             "runtime": self._runtime_info(),
         }
         return json_response(data)
@@ -620,7 +634,7 @@ class DafeiyuSuitePlugin(
                 "schema": schema,
                 "values": values,
                 "secrets": configured,
-                "modules": ["complain", "usage", "voice", "toolbox", "memory"],
+                "modules": ["complain", "usage", "voice", "toolbox", "memory", "master"],
             }
         )
 
@@ -1002,6 +1016,62 @@ class DafeiyuSuitePlugin(
             "skipped": sum(len(texts) for texts in users.values()) - added,
             "users": len(users),
         })
+
+    # ==================== Web API: 认主 ====================
+
+    async def page_master(self):
+        return json_response(
+            {
+                "masters": self._master_display(),
+                "stats": self._master_stats(),
+                "path": self._master_path,
+            }
+        )
+
+    async def page_master_add(self):
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象")
+        qq = str(payload.get("qq") or "").strip()
+        title = str(payload.get("title") or "").strip()
+        name = str(payload.get("name") or "").strip()
+        if not qq:
+            return error_response("缺少 qq（要认主的 QQ 号）")
+        code, entry = self._master_add(qq, title, name, added_by="webui")
+        if code == "invalid":
+            return error_response("QQ 号不对，要用 5 位以上的数字")
+        if code == "limit":
+            return error_response(
+                f"主人已达上限（{self._master_stats()['max']} 位），先取消一位再加"
+            )
+        message = "已添加" if code == "added" else ("已更新称呼" if code == "updated" else "这位已经是主人")
+        return json_response({"message": message, "code": code, "master": entry})
+
+    async def page_master_update(self):
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象")
+        qq = str(payload.get("qq") or "").strip()
+        title = str(payload.get("title") or "").strip()
+        name = str(payload.get("name") or "").strip()
+        if not qq:
+            return error_response("缺少 qq")
+        if not title and not name:
+            return error_response("缺少 title 或 name，没有要改的内容")
+        if not self._master_update(qq, title, name):
+            return error_response(f"{qq} 还不是主人，先添加")
+        return json_response({"message": "已更新", "master": self._master_find(qq)})
+
+    async def page_master_delete(self):
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求体必须是 JSON 对象")
+        qq = str(payload.get("qq") or "").strip()
+        if not qq:
+            return error_response("缺少 qq")
+        if not self._master_remove(qq):
+            return error_response(f"{qq} 不是主人")
+        return json_response({"message": "已取消认主", "masters": len(self._master_items())})
 
 
 

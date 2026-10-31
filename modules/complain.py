@@ -136,6 +136,9 @@ class ComplainMixin(SuiteBase):
         key = (name or "").strip().lstrip("@").strip()
         if not key:
             return None
+        master = self._master_find_by_name(key) if hasattr(self, "_master_find_by_name") else None
+        if master:
+            return master
         owner = self._owner_target()
         if not owner:
             return None
@@ -169,6 +172,10 @@ class ComplainMixin(SuiteBase):
                 if self._target_qq(target) != sender
             ]
         )
+        if hasattr(self, "_master_items") and bool(self._master_cfg("enabled", True)):
+            for item in self._master_items():
+                if item["qq"] != sender:
+                    candidates.append((item["title"], item["qq"]))
         for title, target in candidates:
             if target and self._target_qq(target) != sender:
                 return title, target
@@ -177,6 +184,9 @@ class ComplainMixin(SuiteBase):
     def _sender_title(self, event: AstrMessageEvent) -> str:
         sender = str(event.get_sender_id() or "")
         origin = str(getattr(event, "unified_msg_origin", "") or "")
+        master_title = self._master_title_for(sender) if sender and hasattr(self, "_master_title_for") else ""
+        if master_title:
+            return master_title
         for display, _, target in self._guardians():
             if sender and self._target_qq(target) == sender:
                 return display
@@ -191,6 +201,8 @@ class ComplainMixin(SuiteBase):
 
     def _complain_is_owner(self, event: AstrMessageEvent) -> bool:
         sender = str(event.get_sender_id() or "")
+        if sender and getattr(self, "_master_is_master", None) and self._master_is_master(event):
+            return True
         owner = self._target_qq(self._owner_target(event))
         if owner and sender == owner:
             return True

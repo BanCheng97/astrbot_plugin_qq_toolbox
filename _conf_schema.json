@@ -721,5 +721,56 @@
         }
       }
     }
+  },
+  "master": {
+    "description": "认主",
+    "type": "object",
+    "hint": "支持多位主人，每位一个固定称呼；聊天前会把主人和称呼注入 system prompt，让她开口就叫得对。数据存在 plugin_data/astrbot_plugin_qq_toolbox/masters.json。",
+    "items": {
+      "basic": {
+        "description": "开关与容量",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "enabled": {
+            "description": "启用认主",
+            "type": "bool",
+            "hint": "关掉后认主指令和聊天注入都停用，已保存的主人名单保留",
+            "default": true
+          },
+          "inject_enabled": {
+            "description": "聊天前注入认主关系",
+            "type": "bool",
+            "hint": "把她和主人的称呼关系拼进 system_prompt；关掉后只是不注入，指令仍可用",
+            "default": true
+          },
+          "default_title": {
+            "description": "默认称呼",
+            "type": "string",
+            "hint": "认主时没写称呼就用它，例如 主人、哥哥",
+            "default": "主人"
+          },
+          "max_masters": {
+            "description": "最多几位主人",
+            "type": "int",
+            "hint": "达到上限后要先 /取消认主 掉一位才能再加",
+            "default": 8
+          }
+        }
+      },
+      "claim": {
+        "description": "认主规则",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "allow_self_claim_when_empty": {
+            "description": "还没有主人时允许自助认主",
+            "type": "bool",
+            "hint": "关掉后即使一个主人都没有，也要管理员用 /认主 @某人 称呼 来加",
+            "default": true
+          }
+        }
+      }
+    }
   }
 }

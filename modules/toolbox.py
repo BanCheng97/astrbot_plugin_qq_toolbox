@@ -337,6 +337,8 @@ class ToolboxMixin(SuiteBase):
     # ---------------- 权限 / 平台 -----------------------------
 
     def _toolbox_is_owner(self, event: AstrMessageEvent) -> bool:
+        if getattr(self, "_master_is_master", None) and self._master_is_master(event):
+            return True
         owner = str(self._toolbox_cfg("owner_session") or "").strip()
         origin = getattr(event, "unified_msg_origin", "") or ""
         if owner and origin == owner:

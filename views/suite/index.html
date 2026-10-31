@@ -103,7 +103,7 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
       <div class="logo">鱼</div>
       <div>
         <h1>大肥鱼工具箱</h1>
-        <div class="sub" id="subtitle">告状 · 用量 · 语音 · QQ 空间，一个插件全搞定</div>
+        <div class="sub" id="subtitle">告状 · 用量 · 语音 · QQ 空间 · 记忆 · 认主，一个插件全搞定</div>
       </div>
     </div>
     <div class="spacer"></div>
@@ -116,6 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
     <button data-tab="usage">用量</button>
     <button data-tab="voice">语音</button>
     <button data-tab="memory">记忆</button>
+    <button data-tab="master">认主</button>
     <button data-tab="toolbox">QQ 工具箱</button>
     <button data-tab="records">记录</button>
   </nav>
@@ -266,6 +267,26 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
       <div class="note" id="mem-path"></div>
     </div>
     <div id="memory-config"></div>
+  </section>
+
+  <section id="sec-master" class="section">
+    <div class="card">
+      <h3>认主 <span class="tag" id="master-tag">—</span></h3>
+      <div class="kv" id="master-kv"></div>
+      <hr>
+      <div class="three">
+        <div class="field"><label>QQ 号</label><input id="master-qq" placeholder="要认主的 QQ 号" /></div>
+        <div class="field"><label>怎么称呼 TA</label><input id="master-title" placeholder="哥哥 / 姐姐 / 主人，可用 / 分隔多个叫法" /></div>
+        <div class="field"><label>备注名字（可选）</label><input id="master-name" placeholder="半城" /></div>
+      </div>
+      <div class="row">
+        <button class="primary" id="btn-master-add">添加主人</button>
+        <button id="btn-master-refresh">刷新列表</button>
+      </div>
+      <div class="list" id="master-list"></div>
+      <div class="note" id="master-path"></div>
+    </div>
+    <div id="master-config"></div>
   </section>
 
   <section id="sec-toolbox" class="section">
@@ -470,7 +491,10 @@ let secretFlags = {};
 
 async function refreshAll() {
   await Promise.all([loadStatus(), loadConfig()]);
-  if (hasBridge) loadMemory();
+  if (hasBridge) {
+    loadMemory();
+    loadMaster();
+  }
   if ($("sec-records").classList.contains("active")) loadRecords();
 }
 
@@ -488,23 +512,25 @@ async function loadStatus() {
   renderVoice(data.voice || {});
   renderToolbox(data.toolbox || {});
   renderMemory(data.memory || {});
+  renderMaster(data.master || {});
 }
 
 function demoStatus() {
   return {
-    plugin: { version: "2.2.5", handlers: { total: 51 }, llm_tools: { total: 16 }, platforms: ["aiocqhttp"] },
+    plugin: { version: "2.3.0", handlers: { total: 57 }, llm_tools: { total: 16 }, platforms: ["aiocqhttp"] },
     complain: { enabled: true, owner_configured: false, guardians: 2, today: 3, today_relay: 1, records: 9, cooldown: 600, daily_limit: 5 },
     usage: { enabled: true, api_key_configured: false, alert_enabled: true, alert_threshold: 5, check_interval_hours: 6, task_running: false },
     voice: { listen_enabled: true, speak_enabled: true, sing_enabled: true, backend: "breeze", speak_prob_percent: 10 },
     toolbox: { admin_only: true, cached_sessions: 1, cooldown_remaining: 0, today: { feed: 1, like: 2, comment: 1, delete: 0, card_like: 1 }, history: 8, domain: "user.qzone.qq.com" },
     memory: { enabled: true, inject_enabled: true, auto_extract: true, users: 2, facts: 7, pending: 0 },
+    master: { enabled: true, inject_enabled: true, count: 2, max: 8, default_title: "主人" },
     runtime: { os: "linux", python: "3.11.9", silk: false, audioop: true, onebot: true, data_dir: "/data/data/com.astrbot/files/plugin_data" },
   };
 }
 
 function renderOverview(data) {
   const p = data.plugin || {};
-  const c = data.complain || {}, u = data.usage || {}, v = data.voice || {}, t = data.toolbox || {}, m = data.memory || {}, r = data.runtime || {};
+  const c = data.complain || {}, u = data.usage || {}, v = data.voice || {}, t = data.toolbox || {}, m = data.memory || {}, md = data.master || {}, r = data.runtime || {};
   const cards = [
     ["告状与传话", c.enabled, [
       ["告状对象", c.owner_configured ? "已配置" : "未配置"],
@@ -535,6 +561,12 @@ function renderOverview(data) {
       ["事实条数", (m.facts || 0) + " 条"],
       ["自动抽取", m.auto_extract ? "开启" : "关闭"],
       ["每次注入", (m.inject_top_n || 0) + " 条"],
+    ]],
+    ["认主", !!md.enabled, [
+      ["主人", (md.count || 0) + " / " + (md.max || 8) + " 位"],
+      ["聊天前注入", md.inject_enabled ? "开启" : "关闭"],
+      ["默认称呼", md.default_title || "主人"],
+      ["数据文件", "masters.json"],
     ]],
   ];
   $("overview-cards").innerHTML = cards.map(([title, on, rows]) => `
@@ -636,6 +668,61 @@ function renderMemoryList(users, path) {
   }, "已忘记这条")));
 }
 
+function renderMaster(m) {
+  tag($("master-tag"), !!m.enabled);
+  kv($("master-kv"), [
+    ["主人数量", (m.count || 0) + " / " + (m.max || 8) + " 位"],
+    ["聊天前注入", m.inject_enabled ? "开启" : "关闭"],
+    ["默认称呼", m.default_title || "主人"],
+    ["规则", "已有主人时，新主人需要现有主人或管理员添加"],
+  ]);
+}
+
+async function loadMaster() {
+  try {
+    const data = await get("master");
+    renderMasterList(data.masters || [], data.path || "");
+  } catch (e) { /* 认主接口不可用时静默，避免刷屏 */ }
+}
+
+function renderMasterList(items, path) {
+  const box = $("master-list");
+  if (path) $("master-path").textContent = "存储位置：" + path;
+  if (!items.length) {
+    box.innerHTML = `<div class="empty">还没有认主。上面填 QQ 号和称呼加一位，或者在聊天里发 /认主 称呼</div>`;
+    return;
+  }
+  box.innerHTML = items.map(item => `
+    <div class="item">
+      <b>${esc(item.title || "主人")}</b>
+      <span class="note">QQ ${esc(item.qq)}${item.name ? " · " + esc(item.name) : ""}</span>
+      <div class="note" style="display:flex;gap:8px;align-items:center">
+        <span style="flex:1">叫法：${esc((item.aliases || []).join(" / ") || item.title || "主人")}</span>
+        <button data-master-edit="${esc(item.qq)}">改称呼</button>
+        <button data-master-del="${esc(item.qq)}">取消认主</button>
+      </div>
+    </div>`).join("");
+  box.querySelectorAll("[data-master-edit]").forEach(btn => btn.addEventListener("click", async () => {
+    const next = prompt(`把 ${btn.dataset.masterEdit} 的称呼改成什么？可用 / 分隔多个叫法`, "");
+    if (!next) return;
+    try {
+      await post("master/update", { qq: btn.dataset.masterEdit, title: next });
+      await loadMaster();
+      await loadStatus();
+      toast("已改称呼", "ok");
+    } catch (e) { toast(e.message || "改称呼失败", "err"); }
+  }));
+  box.querySelectorAll("[data-master-del]").forEach(btn => btn.addEventListener("click", async () => {
+    if (!confirm(`确定取消 ${btn.dataset.masterDel} 的主人身份吗？`)) return;
+    try {
+      await post("master/delete", { qq: btn.dataset.masterDel });
+      await loadMaster();
+      await loadStatus();
+      toast("已取消认主", "ok");
+    } catch (e) { toast(e.message || "取消失败", "err"); }
+  }));
+}
+
 async function loadConfig() {
   if (!hasBridge) {
     const mods = ["complain", "usage", "voice", "toolbox"];
@@ -652,6 +739,7 @@ async function loadConfig() {
     renderConfig("voice", "voice-config");
     renderConfig("toolbox", "toolbox-config");
     renderConfig("memory", "memory-config");
+    renderConfig("master", "master-config");
   } catch (e) {
     toast("读取配置失败：" + e.message, "err");
   }
@@ -965,6 +1053,22 @@ function bindActions() {
     await loadMemory();
     await loadStatus();
   }, "已清空记忆"));
+
+  // master
+  $("btn-master-add").addEventListener("click", () => run($("btn-master-add"), async () => {
+    const res = await post("master/add", {
+      qq: $("master-qq").value.trim(),
+      title: $("master-title").value.trim(),
+      name: $("master-name").value.trim(),
+    });
+    $("master-qq").value = "";
+    $("master-title").value = "";
+    $("master-name").value = "";
+    await loadMaster();
+    await loadStatus();
+    toast(res.message || "已添加", "ok");
+  }));
+  $("btn-master-refresh").addEventListener("click", () => run($("btn-master-refresh"), loadMaster));
 
   // records
   $("btn-records").addEventListener("click", () => run($("btn-records"), loadRecords));
