@@ -4,6 +4,7 @@ from .base import SuiteBase
 from .complain import ComplainMixin
 from .master import MasterMixin
 from .memory import MemoryMixin
+from .proactive import ProactiveMixin
 from .toolbox import ToolboxMixin
 from .usage import UsageMixin
 from .voice import VoiceMixin
@@ -13,6 +14,7 @@ __all__ = [
     "ComplainMixin",
     "MasterMixin",
     "MemoryMixin",
+    "ProactiveMixin",
     "UsageMixin",
     "VoiceMixin",
     "ToolboxMixin",

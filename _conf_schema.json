@@ -744,7 +744,7 @@
   "master": {
     "description": "认主",
     "type": "object",
-    "hint": "支持多位主人，每位一个固定称呼；聊天前会把主人和称呼注入 system prompt，让她开口就叫得对。数据存在 plugin_data/astrbot_plugin_qq_toolbox/masters.json。",
+    "hint": "支持多位主人，每位一个固定称呼；聊天前会把主人和称呼作为临时内容追加到本次请求，让她开口就叫得对。数据存在 plugin_data/astrbot_plugin_qq_toolbox/masters.json。",
     "items": {
       "basic": {
         "description": "开关与容量",
@@ -787,6 +787,142 @@
             "type": "bool",
             "hint": "关掉后即使一个主人都没有，也要管理员用 /认主 @某人 称呼 来加",
             "default": true
+          }
+        }
+      }
+    }
+  },
+  "proactive": {
+    "description": "主动搭话",
+    "type": "object",
+    "hint": "记下最近聊过的会话，在合适的时间用当前人格主动发一条消息。数据存在 plugin_data/astrbot_plugin_qq_toolbox/proactive.json。",
+    "items": {
+      "basic": {
+        "description": "开关与对象",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "enabled": {
+            "description": "启用主动搭话",
+            "type": "bool",
+            "hint": "关掉后不再定时发消息，已经记下的会话保留",
+            "default": true
+          },
+          "target_umos": {
+            "description": "固定发送对象（可选）",
+            "type": "list",
+            "hint": "留空就自动挑选最近说过话、且已经安静下来的会话；填了只发这些会话，形如 大肥鱼:FriendMessage:123456",
+            "default": []
+          },
+          "max_sessions": {
+            "description": "最多记多少个会话",
+            "type": "int",
+            "hint": "超出后保留最近活跃的会话，其余自动淘汰",
+            "default": 30
+          },
+          "idle_minutes": {
+            "description": "安静多久后才搭话（分钟）",
+            "type": "int",
+            "hint": "正在聊天的会话不会被打断；只有安静超过这个时长才会排进待发列表",
+            "default": 20
+          },
+          "daily_limit": {
+            "description": "每个会话每天最多几条",
+            "type": "int",
+            "hint": "按本地日期统计，到上限后当天不再主动发",
+            "default": 3
+          },
+          "max_per_round": {
+            "description": "每轮最多发几个会话",
+            "type": "int",
+            "hint": "后台每分钟检查一次，这里控制一轮最多打扰几个会话",
+            "default": 1
+          }
+        }
+      },
+      "timing": {
+        "description": "频率与安静时段",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "min_interval_minutes": {
+            "description": "两次主动搭话的最短间隔（分钟）",
+            "type": "int",
+            "hint": "同一个会话两次主动消息之间不会小于这个间隔",
+            "default": 90
+          },
+          "max_interval_minutes": {
+            "description": "两次主动搭话的最长间隔（分钟）",
+            "type": "int",
+            "hint": "实际间隔在这个区间里随机，避免每次都卡着点发",
+            "default": 240
+          },
+          "chance_percent": {
+            "description": "到点时真的开口的概率（%）",
+            "type": "int",
+            "hint": "留一点不确定性，不是每次到点都发",
+            "default": 60
+          },
+          "quiet_start": {
+            "description": "安静时段开始（小时，0-23）",
+            "type": "int",
+            "hint": "和结束时间一起使用，支持跨零点，比如 23 点到 8 点",
+            "default": 0
+          },
+          "quiet_end": {
+            "description": "安静时段结束（小时，0-23）",
+            "type": "int",
+            "hint": "这段时间内不会主动发消息；开始和结束相同表示不设安静时段",
+            "default": 7
+          },
+          "active_window_hours": {
+            "description": "只搭话最近多久聊过的会话（小时）",
+            "type": "int",
+            "hint": "太久没说话的会话不再打扰",
+            "default": 48
+          }
+        }
+      },
+      "content": {
+        "description": "文案与人格",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "use_persona": {
+            "description": "用 AstrBot 当前人格写文案",
+            "type": "bool",
+            "hint": "打开后直接拿会话对应的人格 system prompt，语气和她平时一致",
+            "default": true
+          },
+          "persona_prompt": {
+            "description": "自定义人格提示词（可选）",
+            "type": "string",
+            "hint": "填了就优先用它，不再读取 AstrBot 人格；留空走当前人格",
+            "default": ""
+          },
+          "provider_id": {
+            "description": "用哪个模型写（可选）",
+            "type": "string",
+            "hint": "留空用当前会话的对话模型；填提供商 ID 可指定",
+            "default": ""
+          },
+          "include_memory": {
+            "description": "带上关于对方的长期记忆",
+            "type": "bool",
+            "hint": "有记忆时会自然地提起对方说过的事；关掉只用时间和上下文",
+            "default": true
+          },
+          "max_length": {
+            "description": "单条消息最多多少字",
+            "type": "int",
+            "hint": "超出的部分会截断，避免模型写成长篇",
+            "default": 60
+          },
+          "fallback_text": {
+            "description": "模型不可用时发的兜底话术",
+            "type": "string",
+            "hint": "留空则按时间段用内置短句；填了就固定发这一句",
+            "default": ""
           }
         }
       }

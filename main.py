@@ -61,6 +61,7 @@ from .modules import (
     ComplainMixin,
     MasterMixin,
     MemoryMixin,
+    ProactiveMixin,
     ToolboxMixin,
     UsageMixin,
     VoiceMixin,
@@ -69,7 +70,7 @@ from .modules.base import MISSING, flatten_dict, nested_get, nested_set, to_bool
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
 ALIAS_NAMES = ("astrbot_plugin_dafeiyu_suite", "astrbot_plugin_qq_toolbox")
-SUITE_VERSION = "2.3.2"
+SUITE_VERSION = "2.4.0"
 
 PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_PATH = os.path.join(PLUGIN_ROOT, "_conf_schema.json")
@@ -253,6 +254,7 @@ class DafeiyuSuitePlugin(
     ToolboxMixin,
     MemoryMixin,
     MasterMixin,
+    ProactiveMixin,
     Star,
 ):
     def __init__(self, context: Context | None = None, config: Any = None):
@@ -271,6 +273,7 @@ class DafeiyuSuitePlugin(
         self.setup_toolbox()
         self.setup_memory()
         self.setup_master()
+        self.setup_proactive()
 
         self._migrate_legacy_config()
         self._normalize_percent_config()
@@ -285,12 +288,17 @@ class DafeiyuSuitePlugin(
 
     async def initialize(self) -> None:
         await self._usage_start()
+        await self._proactive_start()
 
     async def terminate(self) -> None:
         try:
             await self._usage_stop()
         except Exception as exc:
             logger.warning(f"[suite] 停止用量定时任务失败: {exc}")
+        try:
+            await self._proactive_stop()
+        except Exception as exc:
+            logger.warning(f"[suite] 停止主动搭话任务失败: {exc}")
         try:
             await self._toolbox_terminate()
         except Exception as exc:
@@ -593,6 +601,7 @@ class DafeiyuSuitePlugin(
             },
             "memory": self._memory_stats(),
             "master": self._master_stats(),
+            "proactive": self._proactive_stats(),
             "runtime": self._runtime_info(),
         }
         return json_response(data)
@@ -640,7 +649,7 @@ class DafeiyuSuitePlugin(
                 "schema": schema,
                 "values": values,
                 "secrets": configured,
-                "modules": ["complain", "usage", "voice", "toolbox", "memory", "master"],
+                "modules": ["complain", "usage", "voice", "toolbox", "memory", "master", "proactive"],
             }
         )
 

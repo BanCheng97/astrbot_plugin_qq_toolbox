@@ -149,6 +149,7 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
     <button data-tab="voice">语音</button>
     <button data-tab="memory">记忆</button>
     <button data-tab="master">认主</button>
+    <button data-tab="proactive">主动搭话</button>
     <button data-tab="toolbox">QQ 助手</button>
     <button data-tab="records">记录</button>
   </nav>
@@ -319,6 +320,16 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
       <div class="note" id="master-path"></div>
     </div>
     <div id="master-config"></div>
+  </section>
+
+  <section id="sec-proactive" class="section">
+    <div class="card">
+      <h3>主动搭话 <span class="tag" id="proactive-tag">—</span></h3>
+      <div class="kv" id="proactive-kv"></div>
+      <div class="note" id="proactive-path"></div>
+      <div class="note">她会在安静下来的会话里按人格主动开口；深夜安静，每个会话每天有上限。想立刻试一条，在聊天里发 /主动说话。</div>
+    </div>
+    <div id="proactive-config"></div>
   </section>
 
   <section id="sec-toolbox" class="section">
@@ -545,24 +556,26 @@ async function loadStatus() {
   renderToolbox(data.toolbox || {});
   renderMemory(data.memory || {});
   renderMaster(data.master || {});
+  renderProactive(data.proactive || {});
 }
 
 function demoStatus() {
   return {
-    plugin: { version: "2.3.2", handlers: { total: 57 }, llm_tools: { total: 16 }, platforms: ["aiocqhttp"] },
+    plugin: { version: "2.4.0", handlers: { total: 60 }, llm_tools: { total: 16 }, platforms: ["aiocqhttp"] },
     complain: { enabled: true, owner_configured: false, guardians: 2, today: 3, today_relay: 1, records: 9, cooldown: 600, daily_limit: 5 },
     usage: { enabled: true, api_key_configured: false, alert_enabled: true, alert_threshold: 5, check_interval_hours: 6, task_running: false },
     voice: { enabled: true, listen_enabled: true, speak_enabled: true, sing_enabled: true, backend: "breeze", speak_prob_percent: 10 },
     toolbox: { enabled: true, admin_only: true, cached_sessions: 1, cooldown_remaining: 0, today: { feed: 1, like: 2, comment: 1, delete: 0, card_like: 1 }, history: 8, domain: "user.qzone.qq.com" },
     memory: { enabled: true, inject_enabled: true, auto_extract: true, users: 2, facts: 7, pending: 0 },
     master: { enabled: true, inject_enabled: true, count: 2, max: 8, default_title: "主人" },
+    proactive: { enabled: true, quiet: false, sessions: 3, sent_today: 2, history: 5, task_running: true, last_sent: { umo: "大肥鱼:FriendMessage:123456", time: "20:15:00", text: "在忙吗？突然有点想你了。" } },
     runtime: { os: "linux", python: "3.11.9", silk: false, audioop: true, onebot: true, data_dir: "/data/data/com.astrbot/files/plugin_data" },
   };
 }
 
 function renderOverview(data) {
   const p = data.plugin || {};
-  const c = data.complain || {}, u = data.usage || {}, v = data.voice || {}, t = data.toolbox || {}, m = data.memory || {}, md = data.master || {}, r = data.runtime || {};
+  const c = data.complain || {}, u = data.usage || {}, v = data.voice || {}, t = data.toolbox || {}, m = data.memory || {}, md = data.master || {}, pr = data.proactive || {}, r = data.runtime || {};
   const cards = [
     ["告状与传话", c.enabled, [
       ["告状对象", c.owner_configured ? "已配置" : "未配置"],
@@ -599,6 +612,12 @@ function renderOverview(data) {
       ["聊天前注入", md.inject_enabled ? "开启" : "关闭"],
       ["默认称呼", md.default_title || "主人"],
       ["数据文件", "masters.json"],
+    ]],
+    ["主动搭话", !!pr.enabled, [
+      ["记住的会话", (pr.sessions || 0) + " 个"],
+      ["今天已发", (pr.sent_today || 0) + " 条"],
+      ["现在", pr.quiet ? "安静时段" : "可以开口"],
+      ["后台任务", pr.task_running ? "运行中" : "未启动"],
     ]],
   ];
   $("overview-cards").innerHTML = cards.map(([title, on, rows]) => `
@@ -710,6 +729,20 @@ function renderMaster(m) {
   ]);
 }
 
+function renderProactive(p) {
+  tag($("proactive-tag"), !!p.enabled);
+  const last = p.last_sent || {};
+  kv($("proactive-kv"), [
+    ["记住的会话", (p.sessions || 0) + " 个"],
+    ["今天已发", (p.sent_today || 0) + " 条"],
+    ["历史记录", (p.history || 0) + " 条"],
+    ["现在", p.quiet ? "安静时段，不打扰" : "可以开口"],
+    ["后台任务", p.task_running ? "运行中" : "未启动"],
+    ["最近一条", last.time ? last.time + " · " + (last.text || "") : "还没发过"],
+  ]);
+  if (p.path) $("proactive-path").textContent = "存储位置：" + p.path;
+}
+
 async function loadMaster() {
   try {
     const data = await get("master");
@@ -804,6 +837,7 @@ async function loadConfig() {
     renderConfig("toolbox", "toolbox-config");
     renderConfig("memory", "memory-config");
     renderConfig("master", "master-config");
+    renderConfig("proactive", "proactive-config");
   } catch (e) {
     toast("读取配置失败：" + e.message, "err");
   }
