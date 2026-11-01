@@ -34,15 +34,7 @@ class ComplainMixin(SuiteBase):
         self._complain_lock = asyncio.Lock()
         # 被谁欺负 -> 上次告状时间，做单人冷却
         self._last_sent: dict[str, float] = {}
-        try:
-            self._complain_data_path = os.path.join(
-                self.module_data_dir(NAME), "complaints.json"
-            )
-        except Exception as exc:
-            logger.warning(f"[complain] 获取数据目录失败，改用当前目录: {exc}")
-            self._complain_data_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "complaints.json"
-            )
+        self._complain_data_path = self.data_file(NAME, "complaints.json")
 
     # ---------------- 配置读取 -----------------------------
 
@@ -295,6 +287,8 @@ class ComplainMixin(SuiteBase):
     # ---------------- 告状记录 -----------------------------
 
     def _complain_load(self) -> list[dict]:
+        if not self._complain_data_path:
+            return []
         try:
             with open(self._complain_data_path, "r", encoding="utf-8") as file:
                 data = json.load(file)
@@ -306,6 +300,8 @@ class ComplainMixin(SuiteBase):
             return []
 
     def _complain_save(self, records: list[dict]) -> None:
+        if not self._complain_data_path:
+            return
         try:
             os.makedirs(os.path.dirname(self._complain_data_path), exist_ok=True)
             with open(self._complain_data_path, "w", encoding="utf-8") as file:

@@ -37,21 +37,25 @@ NAME = "astrbot_plugin_dafeiyu_voice"
 class VoiceMixin(SuiteBase):
     def setup_voice(self) -> None:
         self._voice_lock = asyncio.Lock()
-        # 状态文件放到 AstrBot 规定的插件数据目录，避免写进插件包内（升级会被覆盖，也不便审计）
-        legacy_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        # 状态文件只放 AstrBot 规定的插件数据目录；拿不到就不持久化，绝不写进插件包
         try:
             self._voice_data_dir = self.module_data_dir(NAME)
         except Exception as exc:
-            logger.warning(f"[voice] 获取数据目录失败，改用插件内目录: {exc}")
-            self._voice_data_dir = legacy_dir
-        os.makedirs(self._voice_data_dir, exist_ok=True)
-        self._voice_state_path = os.path.join(self._voice_data_dir, "voice_state.json")
-        # 旧版本写在 modules/data/voice_state.json，首次启动自动搬过来
-        legacy_state = os.path.join(legacy_dir, "voice_state.json")
+            logger.error(f"[voice] 数据目录不可用，语音设置不会持久化: {exc}")
+            self._voice_data_dir = ""
+        self._voice_state_path = (
+            os.path.join(self._voice_data_dir, "voice_state.json")
+            if self._voice_data_dir
+            else ""
+        )
+        # 旧版本写在 modules/data/voice_state.json，首次启动只读迁移到数据目录
+        legacy_state = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "data", "voice_state.json"
+        )
         if (
-            os.path.isfile(legacy_state)
+            self._voice_state_path
+            and os.path.isfile(legacy_state)
             and not os.path.isfile(self._voice_state_path)
-            and os.path.abspath(legacy_state) != os.path.abspath(self._voice_state_path)
         ):
             try:
                 with open(legacy_state, "r", encoding="utf-8") as src:
@@ -66,6 +70,8 @@ class VoiceMixin(SuiteBase):
     # ---------------- 配置读取 -----------------------------
 
     def _voice_load_state(self) -> dict:
+        if not self._voice_state_path:
+            return {}
         try:
             if os.path.isfile(self._voice_state_path):
                 with open(self._voice_state_path, "r", encoding="utf-8") as f:
@@ -75,6 +81,8 @@ class VoiceMixin(SuiteBase):
         return {}
 
     def _voice_save_state(self) -> None:
+        if not self._voice_state_path:
+            return
         try:
             with open(self._voice_state_path, "w", encoding="utf-8") as f:
                 json.dump(self._voice_state, f, ensure_ascii=False, indent=2)

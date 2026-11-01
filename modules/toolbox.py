@@ -37,7 +37,7 @@ from astrbot import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import At, Image
 
-from .base import SuiteBase, to_int
+from .base import SuiteBase, append_temp, to_int
 
 # 沿用旧插件的数据目录名，历史说说与操作记录可以直接继承
 NAME = "astrbot_plugin_qq_toolbox"
@@ -251,15 +251,7 @@ class ToolboxMixin(SuiteBase):
         self._toolbox_last_write = 0.0
         # sender_id -> (最近一张图的来源, 记录时间)，支持「先发图再说换头像」
         self._recent_images: dict[str, tuple[str, float]] = {}
-        try:
-            self._toolbox_history_path = os.path.join(
-                self.module_data_dir(NAME), "history.json"
-            )
-        except Exception as exc:
-            logger.warning(f"[qq_toolbox] 获取数据目录失败，改用当前目录: {exc}")
-            self._toolbox_history_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "history.json"
-            )
+        self._toolbox_history_path = self.data_file(NAME, "history.json")
 
     def _toolbox_cfg(self, key, default=None):
         return self.cfg("toolbox", key, default)
@@ -273,6 +265,8 @@ class ToolboxMixin(SuiteBase):
     # ---------------- 历史记录 / 配额 -----------------------------
 
     def _toolbox_load(self) -> list[dict]:
+        if not self._toolbox_history_path:
+            return []
         try:
             with open(self._toolbox_history_path, encoding="utf-8") as fp:
                 data = json.load(fp)
@@ -281,6 +275,8 @@ class ToolboxMixin(SuiteBase):
             return []
 
     def _toolbox_save(self, history: list[dict]) -> None:
+        if not self._toolbox_history_path:
+            return
         os.makedirs(os.path.dirname(self._toolbox_history_path), exist_ok=True)
         with open(self._toolbox_history_path, "w", encoding="utf-8") as fp:
             json.dump(history[-300:], fp, ensure_ascii=False, indent=1)
@@ -1221,10 +1217,11 @@ class ToolboxMixin(SuiteBase):
             return  # 主人直接说了改签名，走 owner_asked 那条路
         if self._toolbox_count_today("signature", owner_asked=False) >= int(self._toolbox_cfg("daily_self_limit") or 2):
             return
-        req.system_prompt = (req.system_prompt or "") + (
-            f"\n\n补充说明：主人这句话{mood}。照你的规矩，这种时候你会自己改一条 QQ 签名记下心情，"
+        append_temp(
+            req,
+            f"补充说明：主人这句话{mood}。照你的规矩，这种时候你会自己改一条 QQ 签名记下心情，"
             "所以这次回复时顺手调用 qq_set_signature（owner_asked 填 false），然后照常回话，改完可以顺嘴提一句。"
-            "这段补充说明是给你看的，别在回复里提到它。"
+            "这段补充说明是给你看的，别在回复里提到它。",
         )
         logger.info(f"[qq_toolbox] 提醒她自己改签名：{mood}")
 
@@ -1245,11 +1242,12 @@ class ToolboxMixin(SuiteBase):
         chance = max(0.0, min(100.0, percent)) / 100.0
         if random.random() > chance:
             return
-        req.system_prompt = (req.system_prompt or "") + (
-            f"\n\n补充说明：主人这句话{mood}。这种时候你偶尔会想把心情写进 QQ 空间说说。"
+        append_temp(
+            req,
+            f"补充说明：主人这句话{mood}。这种时候你偶尔会想把心情写进 QQ 空间说说。"
             "如果这次想发，顺手调用 qq_post_feed 写一条 40 字以内、用你自己口吻的说说，然后照常回话，"
             "发完可以顺嘴提一句；不想发就正常聊，不必勉强。"
-            "这段补充说明是给你看的，别在回复里提到它。"
+            "这段补充说明是给你看的，别在回复里提到它。",
         )
         logger.info(f"[qq_toolbox] 提醒她可以自己发说说：{mood}")
 

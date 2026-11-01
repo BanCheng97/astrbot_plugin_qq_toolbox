@@ -17,14 +17,14 @@ from typing import Any
 
 from astrbot import logger
 
+try:  # AstrBot 4.x：往本次请求追加临时内容的载体
+    from astrbot.core.agent.message import TextPart
+except Exception:  # pragma: no cover - 仅用于老版本 / 本地单测
+    TextPart = None  # type: ignore[assignment,misc]
+
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
 
 MISSING = object()
-
-
-def plugin_root() -> str:
-    """插件根目录（main.py 所在目录）。"""
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def to_int(value: Any, default: int) -> int:
@@ -124,20 +124,49 @@ def save_json(path: str, data: Any) -> None:
         logger.warning(f"[suite] 写入 {path} 失败: {exc}")
 
 
+class DataDirUnavailableError(RuntimeError):
+    """AstrBot 插件数据目录不可用（拿不到或建不出来）。"""
+
+
 def resolve_data_dir(plugin_name: str) -> str:
-    """数据目录：优先 AstrBot 的插件数据目录，失败时落到插件目录下的 data/。"""
+    """返回 AstrBot 规定的插件数据目录 ``data/plugin_data/<plugin_name>``。
+
+    拿不到就直接抛错，绝不退回到插件包目录：持久化数据必须放在 AstrBot
+    管理的目录里，否则插件升级 / 重装会覆盖用户数据，也不方便迁移和审计。
+    """
     try:
         from astrbot.api.star import StarTools
 
-        path = str(StarTools.get_data_dir(plugin_name))
+        path = str(StarTools.get_data_dir(plugin_name) or "").strip()
     except Exception as exc:
-        logger.warning(f"[suite] 获取 {plugin_name} 数据目录失败，改用本地 data/: {exc}")
-        path = os.path.join(plugin_root(), "data", plugin_name)
+        raise DataDirUnavailableError(f"获取 {plugin_name} 数据目录失败: {exc}") from exc
+    if not path:
+        raise DataDirUnavailableError(f"{plugin_name} 数据目录为空")
     try:
         os.makedirs(path, exist_ok=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        raise DataDirUnavailableError(f"创建数据目录 {path} 失败: {exc}") from exc
     return path
+
+
+def append_temp(req: Any, text: str) -> bool:
+    """把临时内容追加到本次请求的用户消息里，不改 system_prompt、不写入上下文。
+
+    按说话人变化的内容（记忆、认主、情绪提醒）如果拼进 system_prompt，
+    群聊里每换一个人说话都会改写系统提示，破坏模型侧的缓存；这里统一
+    走 ``extra_user_content_parts`` 并标记为临时，只对本次请求生效。
+    """
+    if not text:
+        return False
+    if TextPart is None:
+        logger.warning("[suite] 当前 AstrBot 不支持 extra_user_content_parts，跳过临时内容注入")
+        return False
+    parts = getattr(req, "extra_user_content_parts", None)
+    if parts is None:
+        logger.warning("[suite] 请求对象没有 extra_user_content_parts，跳过临时内容注入")
+        return False
+    parts.append(TextPart(text=text).mark_as_temp())
+    return True
 
 
 class SuiteBase:
@@ -188,6 +217,14 @@ class SuiteBase:
 
     def module_data_dir(self, plugin_name: str) -> str:
         return resolve_data_dir(plugin_name)
+
+    def data_file(self, plugin_name: str, filename: str) -> str:
+        """数据目录下的文件路径；目录不可用时返回空串，调用方据此跳过读写。"""
+        try:
+            return os.path.join(self.module_data_dir(plugin_name), filename)
+        except Exception as exc:
+            logger.error(f"[suite] {plugin_name} 数据目录不可用，{filename} 不会持久化: {exc}")
+            return ""
 
     # ---------------- OneBot 客户端 ----------------
 

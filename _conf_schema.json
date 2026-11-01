@@ -672,7 +672,7 @@
           "inject_enabled": {
             "description": "对话前注入记忆",
             "type": "bool",
-            "hint": "每次请求把当前说话人的事实拼进 system_prompt，会多消耗一点输入 token",
+            "hint": "每次请求把当前说话人的事实作为临时内容追加到本次请求（不改 system_prompt），会多消耗一点输入 token",
             "default": true
           },
           "auto_extract": {
@@ -760,7 +760,7 @@
           "inject_enabled": {
             "description": "聊天前注入认主关系",
             "type": "bool",
-            "hint": "把她和主人的称呼关系拼进 system_prompt；关掉后只是不注入，指令仍可用",
+            "hint": "把她和主人的称呼关系作为临时内容追加到本次请求（不改 system_prompt）；关掉后只是不注入，指令仍可用",
             "default": true
           },
           "default_title": {

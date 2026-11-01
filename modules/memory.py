@@ -4,7 +4,7 @@
 
 - 存：``plugin_data/<旧目录名>/memory.json``（跟历史数据放一起，升级不丢）
 - 写：消息监听 + 关键词预筛，攒够若干句再让模型抽一次「关于这个人的事实」
-- 读：``on_llm_request`` 时把当前说话人的事实拼进 system_prompt
+- 读：``on_llm_request`` 时把当前说话人的事实作为临时内容追加到本次请求
 
 所有方法都带 ``memory`` 前缀，避免多继承时和别的模块重名。
 """
@@ -22,7 +22,7 @@ from astrbot import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import Plain
 
-from .base import SuiteBase, load_json, save_json, to_int
+from .base import SuiteBase, append_temp, load_json, save_json, to_int
 
 # 沿用旧数据目录，告状 / 用量 / 工具箱的历史数据不用搬家
 NAME = "astrbot_plugin_qq_toolbox"
@@ -55,7 +55,7 @@ HELP_TEXT = """记忆相关指令：
 
 class MemoryMixin(SuiteBase):
     def setup_memory(self) -> None:
-        self._memory_path = os.path.join(self.module_data_dir(NAME), "memory.json")
+        self._memory_path = self.data_file(NAME, "memory.json")
         self._memory_data: dict[str, Any] | None = None
         # sender -> 攒着待抽取的句子
         self._memory_pending: dict[str, list[str]] = {}
@@ -71,7 +71,7 @@ class MemoryMixin(SuiteBase):
     def _memory_load(self) -> dict[str, Any]:
         if self._memory_data is not None:
             return self._memory_data
-        data = load_json(self._memory_path, {})
+        data = load_json(self._memory_path, {}) if self._memory_path else {}
         if not isinstance(data, dict):
             data = {}
         if not isinstance(data.get("users"), dict):
@@ -80,6 +80,8 @@ class MemoryMixin(SuiteBase):
         return data
 
     def _memory_save(self) -> None:
+        if not self._memory_path:
+            return
         data = self._memory_load()
         data["updated"] = int(time.time())
         # 留一份上一版作为备份，JSON 写坏时还能手动回退
@@ -357,7 +359,7 @@ class MemoryMixin(SuiteBase):
 
     @filter.on_llm_request()
     async def memory_inject(self, event: AstrMessageEvent, req: Any):
-        """把当前说话人的记忆拼进 system_prompt。"""
+        """把当前说话人的记忆作为临时内容追加到本次请求（不改 system_prompt）。"""
         if not bool(self._memory_cfg("enabled", True)):
             return
         if not bool(self._memory_cfg("inject_enabled", True)):
@@ -384,8 +386,8 @@ class MemoryMixin(SuiteBase):
                     "让对方直接告诉你值得记的事（也可以发 /记住 内容）；"
                     "绝对不要编造记得的事情，也不要承诺「已经记住了」。"
                 )
-            current = str(getattr(req, "system_prompt", "") or "")
-            req.system_prompt = f"{current}\n\n{block}" if current else block
+            if not append_temp(req, block):
+                return
             try:
                 req._memory_injected = True
             except Exception:

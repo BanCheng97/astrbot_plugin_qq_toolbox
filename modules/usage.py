@@ -63,15 +63,7 @@ def money(value: Any) -> float:
 
 class UsageMixin(SuiteBase):
     def setup_usage(self) -> None:
-        try:
-            self._usage_data_path = os.path.join(
-                self.module_data_dir(NAME), "usage.json"
-            )
-        except Exception as exc:
-            logger.warning(f"[usage] 获取数据目录失败，改用当前目录: {exc}")
-            self._usage_data_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "usage.json"
-            )
+        self._usage_data_path = self.data_file(NAME, "usage.json")
         self._usage_lock = asyncio.Lock()
         self._cache: dict[str, Any] | None = None
         self._cache_ts = 0.0
@@ -159,6 +151,8 @@ class UsageMixin(SuiteBase):
     # ---------------- 快照存储 -----------------------------
 
     def _usage_load(self) -> dict[str, Any]:
+        if not self._usage_data_path:
+            return {}
         try:
             with open(self._usage_data_path, "r", encoding="utf-8") as file:
                 data = json.load(file)
@@ -170,6 +164,8 @@ class UsageMixin(SuiteBase):
             return {}
 
     def _usage_save(self, state: dict[str, Any]) -> None:
+        if not self._usage_data_path:
+            return
         try:
             os.makedirs(os.path.dirname(self._usage_data_path), exist_ok=True)
             with open(self._usage_data_path, "w", encoding="utf-8") as file:

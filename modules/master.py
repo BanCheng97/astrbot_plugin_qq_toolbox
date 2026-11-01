@@ -2,7 +2,7 @@
 
 支持多位主人，每位一个固定称呼（可以写多个叫法）。用于：
 
-- 聊天前把「谁是主人、该怎么称呼」注入 system_prompt，她开口就能叫对；
+- 聊天前把「谁是主人、该怎么称呼」作为临时内容追加到本次请求，她开口就能叫对；
 - 主人可以给其他人认主、改称呼、逐出；
 - 和告状 / 传话 / QQ 工具箱联动：主人自动获得相应权限，传话时能按称呼找到人。
 
@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from typing import Any
@@ -21,7 +20,7 @@ from astrbot import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import At
 
-from .base import SuiteBase, load_json, save_json, to_int
+from .base import SuiteBase, append_temp, load_json, save_json, to_int
 
 # 沿用旧数据目录，和记忆 / 历史记录放在一起
 NAME = "astrbot_plugin_qq_toolbox"
@@ -39,7 +38,7 @@ _TITLE_LIMIT = 16
 
 class MasterMixin(SuiteBase):
     def setup_master(self) -> None:
-        self._master_path = os.path.join(self.module_data_dir(NAME), "masters.json")
+        self._master_path = self.data_file(NAME, "masters.json")
         self._master_data: dict[str, Any] | None = None
 
     def _master_cfg(self, key: str, default: Any = None) -> Any:
@@ -50,7 +49,7 @@ class MasterMixin(SuiteBase):
     def _master_load(self) -> dict[str, Any]:
         if self._master_data is not None:
             return self._master_data
-        raw = load_json(self._master_path, {})
+        raw = load_json(self._master_path, {}) if self._master_path else {}
         if not isinstance(raw, dict):
             raw = {}
         items = raw.get("masters")
@@ -65,6 +64,8 @@ class MasterMixin(SuiteBase):
         return raw
 
     def _master_save(self) -> None:
+        if not self._master_path:
+            return
         data = self._master_load()
         data["updated"] = int(time.time())
         save_json(self._master_path, data)
@@ -337,7 +338,7 @@ class MasterMixin(SuiteBase):
 
     @filter.on_llm_request()
     async def master_inject(self, event: AstrMessageEvent, req: Any):
-        """把主人名单与称呼拼进 system_prompt，让她知道该叫谁什么。"""
+        """把主人名单与称呼作为临时内容追加到本次请求（不改 system_prompt）。"""
         if not bool(self._master_cfg("enabled", True)):
             return
         if not bool(self._master_cfg("inject_enabled", True)):
@@ -369,8 +370,8 @@ class MasterMixin(SuiteBase):
                     + "\n当前说话的人不是你的主人：对 TA 用平常规矩和语气就行，"
                     "别把「主人」这个称呼用在 TA 身上，也别对着 TA 自称奴仆或下人。"
                 )
-            existing = str(getattr(req, "system_prompt", "") or "")
-            req.system_prompt = f"{existing}\n\n{block}" if existing else block
+            if not append_temp(req, block):
+                return
             try:
                 req._master_injected = True
             except Exception:
