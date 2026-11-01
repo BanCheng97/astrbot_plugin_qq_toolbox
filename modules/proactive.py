@@ -111,6 +111,46 @@ class ProactiveMixin(SuiteBase):
             return [item.strip() for item in re.split(r"[\s,，;]+", raw) if item.strip()]
         return []
 
+    @staticmethod
+    def _proactive_peer(umo: str) -> tuple[str, str]:
+        """从 UMO 拆出（消息类型, 会话 id）。"""
+        parts = str(umo or "").split(":")
+        if len(parts) >= 3:
+            return parts[-2], parts[-1]
+        return "", ""
+
+    def _proactive_enrich(self, umo: str, info: dict[str, Any]) -> dict[str, Any]:
+        """生成文案前按 UMO 重新确认「对方是谁、该怎么称呼」。
+
+        会话记录里的说话人 / 称呼是聊天当时的快照，之后改认主、改称呼、
+        或固定发送对象还没聊过，都可能过期。私聊直接用 UMO 里的 QQ，
+        称呼每次现查，避免把妈叫成爹。
+        """
+        view = dict(info or {})
+        peer_type, peer_id = self._proactive_peer(umo)
+        sender = str(view.get("sender") or "")
+        if peer_type in ("FriendMessage", "TempMessage") and peer_id.isdigit():
+            sender = peer_id
+        if not sender:
+            return view
+        view["sender"] = sender
+        title_getter = getattr(self, "_master_title_for", None)
+        if callable(title_getter):
+            try:
+                view["master_title"] = str(title_getter(sender) or "")
+            except Exception:
+                view["master_title"] = ""
+        if not view.get("sender_name"):
+            finder = getattr(self, "_master_find", None)
+            if callable(finder):
+                try:
+                    item = finder(sender)
+                except Exception:
+                    item = None
+                if isinstance(item, dict) and item.get("name"):
+                    view["sender_name"] = str(item["name"])
+        return view
+
     # ---------------- 时间与状态 -----------------------------
 
     def _proactive_gap_seconds(self) -> int:
@@ -255,12 +295,13 @@ class ProactiveMixin(SuiteBase):
         self, umo: str, info: dict[str, Any], mode: str
     ) -> tuple[str, list[str]]:
         limit = max(10, to_int(self._proactive_cfg("max_length", 60), 60))
-        facts = self._proactive_facts(info)
+        view = self._proactive_enrich(umo, info)
+        facts = self._proactive_facts(view)
         provider = self._proactive_provider(umo)
         if provider is None:
             return "", facts
         system_prompt = await self._proactive_system_prompt(umo)
-        prompt = self._proactive_prompt(info, mode, facts)
+        prompt = self._proactive_prompt(view, mode, facts)
         try:
             resp = await provider.text_chat(
                 prompt=prompt,
@@ -391,8 +432,9 @@ class ProactiveMixin(SuiteBase):
                 continue
             if random.randint(1, 100) > chance:
                 continue
-            facts = self._proactive_facts(info)
-            mode = self._proactive_mode(info, bool(facts))
+            view = self._proactive_enrich(umo, info)
+            facts = self._proactive_facts(view)
+            mode = self._proactive_mode(view, bool(facts))
             text, facts = await self._proactive_compose(umo, info, mode)
             if not text:
                 text = self._proactive_fallback(mode)
@@ -524,8 +566,9 @@ class ProactiveMixin(SuiteBase):
         info = self._proactive_load()["sessions"].get(target)
         if not isinstance(info, dict):
             info = {}
-        facts = self._proactive_facts(info)
-        mode = self._proactive_mode(info, bool(facts))
+        view = self._proactive_enrich(target, info)
+        facts = self._proactive_facts(view)
+        mode = self._proactive_mode(view, bool(facts))
         text, facts = await self._proactive_compose(target, info, mode)
         if not text:
             text = self._proactive_fallback(mode)
