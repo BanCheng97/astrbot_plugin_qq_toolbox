@@ -1,4 +1,4 @@
-"""AstrBot 插件：QQ 资料与空间工具箱（大肥鱼版）
+"""AstrBot 插件：QQ 助手（大肥鱼版）
 
 双通道设计：
 1. LLM 工具通道（主路径）：把改昵称、改签名、发说说、点赞/评论/回复/删除说说、名片赞做成
@@ -33,7 +33,7 @@ from urllib.parse import unquote, urlparse
 
 import aiohttp
 
-from astrbot import logger
+from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import At, Image
 

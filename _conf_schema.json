@@ -313,7 +313,7 @@
             "description": "MiMo API Key",
             "type": "string",
             "secret": true,
-            "hint": "从 https://platform.xiaomimimo.com 申请；留空则复用语音合成里的 Key",
+            "hint": "从 https://platform.xiaomimimo.com 申请；留空则复用 BreezeBlue 的 API Key，该 Key 会被发送到小米接口 api.xiaomimimo.com，介意跨服务复用请单独填写",
             "default": ""
           },
           "mimo_stt_model": {
@@ -359,7 +359,7 @@
                 "description": "API Key",
                 "type": "string",
                 "secret": true,
-                "hint": "从 https://breezeblue.ai/zh?code=6ZQLZ6 申请",
+                "hint": "从 https://breezeblue.ai/zh?code=6ZQLZ6 申请；注意：MiMo TTS/STT 未单独配置 Key 时会复用此 Key 并发送到小米接口 api.xiaomimimo.com",
                 "default": ""
               },
               "breeze_voice_id": {
@@ -386,7 +386,7 @@
                 "description": "MiMo API Key",
                 "type": "string",
                 "secret": true,
-                "hint": "留空则复用识别分组的 MiMo Key，再退回复用 BreezeBlue Key",
+                "hint": "从 https://platform.xiaomimimo.com 申请；留空则复用识别分组的 MiMo Key，再退回复用 BreezeBlue Key，复用时该 Key 会发送到 api.xiaomimimo.com",
                 "default": ""
               },
               "mimo_tts_model": {

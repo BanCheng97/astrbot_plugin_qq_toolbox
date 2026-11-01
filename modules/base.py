@@ -1,6 +1,6 @@
-"""大肥鱼合集插件：四个模块共用的底座。
+"""大肥鱼：模块共用的底座。
 
-把四个原插件里重复的东西收拢到这里：
+把插件里重复的东西收拢到这里：
 - 配置查找（按模块命名空间隔离，兼容旧版扁平配置）
 - 数据目录 / JSON 读写
 - OneBot 客户端获取
@@ -15,7 +15,7 @@ import json
 import os
 from typing import Any
 
-from astrbot import logger
+from astrbot.api import logger
 
 try:  # AstrBot 4.x：往本次请求追加临时内容的载体
     from astrbot.core.agent.message import TextPart

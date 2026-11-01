@@ -27,7 +27,7 @@ import tempfile
 import time
 from typing import Any
 
-from astrbot import logger
+from astrbot.api import logger
 from astrbot.api.star import Context, Star
 
 try:  # AstrBot 4.x 推荐写法
