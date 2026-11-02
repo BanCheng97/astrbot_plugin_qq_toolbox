@@ -196,7 +196,8 @@ class VoiceMixin(SuiteBase):
         lines = [line for line in lines if line]
         if not lines:
             return (text or "").strip()
-        return "，".join(lines[:8])
+        # 不再截断句数：超长歌词由 _synthesize_and_send 拆成多段语音
+        return "，".join(lines)
 
     _EMOJI_RE = re.compile(
         "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\uFE0F\u200D\u2190-\u21FF\u2B00-\u2BFF]+"
@@ -749,6 +750,79 @@ class VoiceMixin(SuiteBase):
             logger.warning(f"[voice] aiocqhttp bot 发送失败: {exc}")
             return False
 
+    # 单条语音的字符上限（≈45 秒），给 QQ 的 60 秒上限留余量
+    _TTS_CHUNK_CHARS_SPEAK = 200
+    _TTS_CHUNK_CHARS_SING = 150
+
+    @staticmethod
+    def _split_tts_chunks(text: str, limit: int) -> list[str]:
+        """按标点把长文本切成多段，每段不超过 limit 字，尽量在句读处断开。"""
+        text = (text or "").strip()
+        if not text:
+            return []
+        if len(text) <= limit:
+            return [text]
+        parts = re.split(r"(?<=[，。！？、；;,.!?~…])", text)
+        chunks: list[str] = []
+        buf = ""
+        for part in parts:
+            part = part.strip()
+            while len(part) > limit:
+                if buf:
+                    chunks.append(buf)
+                    buf = ""
+                chunks.append(part[:limit])
+                part = part[limit:].lstrip()
+            if not part:
+                continue
+            if len(buf) + len(part) <= limit:
+                buf += part
+            else:
+                if buf:
+                    chunks.append(buf)
+                buf = part
+        if buf:
+            chunks.append(buf)
+        return [chunk for chunk in chunks if chunk.strip()]
+
+    async def _synthesize_and_send(
+        self,
+        event: AstrMessageEvent,
+        text: str,
+        emotion: str = "normal",
+        style: str = "",
+    ) -> bool:
+        """把文本分段合成语音并依次发送，单段控制在 60 秒以内。"""
+        source = self._clean_tts_text(text)
+        if emotion == "sing":
+            source = self._format_lyrics(source)
+        limit = (
+            self._TTS_CHUNK_CHARS_SING
+            if emotion == "sing"
+            else self._TTS_CHUNK_CHARS_SPEAK
+        )
+        chunks = self._split_tts_chunks(source, limit)
+        if not chunks:
+            raise ValueError("清洗后没有可朗读的文本")
+        if len(chunks) > 1:
+            logger.info(f"[voice] 文本较长，拆成 {len(chunks)} 段语音依次发送")
+        sent = 0
+        for index, chunk in enumerate(chunks):
+            if index:
+                await asyncio.sleep(0.5)
+            path = None
+            try:
+                path = await self._synthesize(chunk, emotion, style)
+                if await self._send_voice(event, path):
+                    sent += 1
+            finally:
+                if path:
+                    try:
+                        os.unlink(path)
+                    except Exception:
+                        pass
+        return sent > 0
+
     # ---------------- 听懂（STT 拦截） -----------------------------
 
     @filter.event_message_type(filter.EventMessageType.ALL)
@@ -835,15 +909,10 @@ class VoiceMixin(SuiteBase):
             emotion = "sing"
             logger.info("[voice] 检测到唱歌意图，强制 emotion=sing")
         try:
-            mp3_path = await self._synthesize(text, emotion)
+            ok = await self._synthesize_and_send(event, text, emotion)
         except Exception as exc:
             logger.warning(f"[voice] 自动 TTS 失败: {exc}")
             return
-        ok = await self._send_voice(event, mp3_path)
-        try:
-            os.unlink(mp3_path)
-        except Exception:
-            pass
         # 语音发成功后，清空原回复里的文字，只留语音
         if ok:
             try:
@@ -875,15 +944,10 @@ class VoiceMixin(SuiteBase):
             text = text[:300] + "……"
         emotion = self._detect_emotion(text)
         try:
-            mp3_path = await self._synthesize(text, emotion)
+            ok = await self._synthesize_and_send(event, text, emotion)
         except Exception as exc:
             logger.warning(f"[voice] tool_tts 合成失败: {exc}")
             return '这次说不出来，跟用户说一句"等会儿再试"，别解释原因。'
-        ok = await self._send_voice(event, mp3_path)
-        try:
-            os.unlink(mp3_path)
-        except Exception:
-            pass
         if ok:
             return "已经用语音说出来了。"
         return "这次没说出去，等会儿再试一下吧。"
@@ -909,15 +973,10 @@ class VoiceMixin(SuiteBase):
         raw = raw[:400]
 
         try:
-            mp3_path = await self._synthesize(raw, emotion="sing")
+            ok = await self._synthesize_and_send(event, raw, emotion="sing")
         except Exception as exc:
             logger.warning(f"[voice] tool_sing 合成失败: {exc}")
             return '这次唱不出来，跟用户说一句"等会儿再唱"，别解释原因。'
-        ok = await self._send_voice(event, mp3_path)
-        try:
-            os.unlink(mp3_path)
-        except Exception:
-            pass
         if ok:
             return "已经唱出来啦~"
         return "这次没唱出去，等会儿再试吧。"
@@ -935,16 +994,11 @@ class VoiceMixin(SuiteBase):
             return
         emotion = self._detect_emotion(text)
         try:
-            mp3_path = await self._synthesize(text[:300], emotion)
+            ok = await self._synthesize_and_send(event, text[:300], emotion)
         except Exception as exc:
             logger.warning(f"[voice] /说 合成失败: {exc}")
             yield event.plain_result("说不出来了，等会儿再试。")
             return
-        ok = await self._send_voice(event, mp3_path)
-        try:
-            os.unlink(mp3_path)
-        except Exception:
-            pass
         yield event.plain_result("已发送语音" if ok else "没发出去，等会儿再试。")
 
     @filter.command("唱")
@@ -957,16 +1011,11 @@ class VoiceMixin(SuiteBase):
             yield event.plain_result("用法：/唱 歌词或歌名")
             return
         try:
-            mp3_path = await self._synthesize(text[:400], emotion="sing")
+            ok = await self._synthesize_and_send(event, text[:400], emotion="sing")
         except Exception as exc:
             logger.warning(f"[voice] /唱 合成失败: {exc}")
             yield event.plain_result("唱不出来了，等会儿再试。")
             return
-        ok = await self._send_voice(event, mp3_path)
-        try:
-            os.unlink(mp3_path)
-        except Exception:
-            pass
         yield event.plain_result("已发出歌声" if ok else "没唱出去，等会儿再试。")
 
     @filter.command("听到")
