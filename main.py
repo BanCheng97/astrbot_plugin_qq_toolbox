@@ -21,10 +21,8 @@ import importlib.util
 import json
 import os
 import platform
-import re
 import sys
 import tempfile
-import time
 from typing import Any
 
 from astrbot.api import logger
@@ -527,10 +525,8 @@ class DafeiyuSuitePlugin(
 
     async def page_status(self):
         records = self._complain_load()
-        today = time.strftime("%Y-%m-%d")
         usage_state = self._usage_load()
         snapshots = [s for s in (usage_state.get("snapshots") or []) if isinstance(s, dict)]
-        trust = [h for h in self._toolbox_load() if h.get("date") == today]
 
         toolbox_counts = {}
         for kind in ("feed", "like", "comment", "delete", "card_like", "nickname", "signature"):
@@ -620,8 +616,8 @@ class DafeiyuSuitePlugin(
     def _platform_names(self) -> list[str]:
         names: list[str] = []
         try:
-            for platform in self.context.platform_manager.platform_insts:
-                name = getattr(platform, "name", "") or getattr(platform, "platform_name", "")
+            for inst in self.context.platform_manager.platform_insts:
+                name = getattr(inst, "name", "") or getattr(inst, "platform_name", "")
                 if name:
                     names.append(str(name))
         except Exception:

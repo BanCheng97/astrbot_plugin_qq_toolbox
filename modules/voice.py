@@ -301,22 +301,33 @@ class VoiceMixin(SuiteBase):
             body["instructions"] = instructions
             logger.info(f"[voice] BreezeBlue instructions: {instructions[:80]}")
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                url,
-                headers={"xi-api-key": key, "Content-Type": "application/json"},
-                json=body,
-            )
-            if resp.status_code >= 400:
-                # 尝试解析错误 JSON
-                try:
-                    err = resp.json()
+        async with self._voice_lock:
+            # 并发超限（429）时退避重试，避免和其它语音任务撞车直接失败
+            for attempt in range(1, 4):
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(
+                        url,
+                        headers={"xi-api-key": key, "Content-Type": "application/json"},
+                        json=body,
+                    )
+                if resp.status_code == 429 and attempt < 3:
+                    wait = 2.0 * attempt
+                    logger.warning(
+                        f"[voice] BreezeBlue 并发超限，{wait:.0f}s 后重试（{attempt}/2）"
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                if resp.status_code >= 400:
+                    # 尝试解析错误 JSON
+                    try:
+                        err = resp.json()
+                    except Exception:
+                        err = resp.text[:200]
                     raise RuntimeError(f"BreezeBlue API {resp.status_code}: {err}")
-                except Exception:
-                    raise RuntimeError(f"BreezeBlue API {resp.status_code}: {resp.text[:200]}")
-            # 成功：直接返回二进制 mp3
-            with open(out_path, "wb") as f:
-                f.write(resp.content)
+                # 成功：直接返回二进制 mp3
+                with open(out_path, "wb") as f:
+                    f.write(resp.content)
+                break
         return out_path
 
     async def _mimo_tts(
@@ -358,19 +369,27 @@ class VoiceMixin(SuiteBase):
         }
         logger.info(f"[voice] MiMo TTS 请求: model={model}, voice={voice}, emotion={emotion}")
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                "https://api.xiaomimimo.com/v1/chat/completions",
-                headers={"api-key": key, "Content-Type": "application/json"},
-                json=payload,
-            )
-            if resp.status_code >= 400:
-                try:
-                    err = resp.json()
-                except Exception:
-                    err = resp.text[:200]
-                raise RuntimeError(f"MiMo TTS API {resp.status_code}: {err}")
-            data = resp.json()
+        async with self._voice_lock:
+            for attempt in range(1, 4):
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(
+                        "https://api.xiaomimimo.com/v1/chat/completions",
+                        headers={"api-key": key, "Content-Type": "application/json"},
+                        json=payload,
+                    )
+                if resp.status_code == 429 and attempt < 3:
+                    wait = 2.0 * attempt
+                    logger.warning(f"[voice] MiMo 并发超限，{wait:.0f}s 后重试（{attempt}/2）")
+                    await asyncio.sleep(wait)
+                    continue
+                if resp.status_code >= 400:
+                    try:
+                        err = resp.json()
+                    except Exception:
+                        err = resp.text[:200]
+                    raise RuntimeError(f"MiMo TTS API {resp.status_code}: {err}")
+                data = resp.json()
+                break
 
         message = (data.get("choices") or [{}])[0].get("message") or {}
         audio_b64 = (message.get("audio") or {}).get("data") or ""
@@ -795,7 +814,7 @@ class VoiceMixin(SuiteBase):
                 await bot.send_private_msg(user_id=int(sid), message=[record])
             else:
                 return False
-            logger.info(f"[voice] 语音已发送 (silk base64)")
+            logger.info("[voice] 语音已发送 (silk base64)")
             return True
         except Exception as exc:
             logger.warning(f"[voice] aiocqhttp bot 发送失败: {exc}")
