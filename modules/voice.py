@@ -107,14 +107,22 @@ class VoiceMixin(SuiteBase):
         # 唱歌优先级最高
         if any(w in t for w in ["唱", "歌", "哼一段", "旋律", "歌词"]):
             return "sing"
+        if any(w in t for w in ["感动", "有你真好", "谢谢你记得", "鼻子一酸", "泪目", "想哭但"]):
+            return "moved"
         if any(w in t for w in ["呜呜", "难过", "伤心", "想哭", "哭了", "委屈", "舍不得", "……", "。。。"]):
             return "sad"
+        if any(w in t for w in ["冤枉", "欺负", "凭什么", "不公平", "你偏心", "不理你了"]):
+            return "wronged"
         if any(w in t for w in ["害怕", "好怕", "吓死", "恐怖", "不敢", "发抖"]):
             return "scared"
         if any(w in t for w in ["讨厌", "烦死", "生气", "气死", "滚", "闭嘴", "哼！"]):
             return "angry"
+        if any(w in t for w in ["着急", "快点", "来不及", "急死", "怎么办", "催你", "赶紧"]):
+            return "anxious"
         if any(w in t for w in ["好累", "困了", "想睡", "没力气", "熬夜", "撑不住", "叹气"]):
             return "tired"
+        if any(w in t for w in ["悄悄", "小声点", "偷偷", "耳语", "别让人听见"]):
+            return "whisper"
         if any(w in t for w in ["害羞", "不好意思", "脸红", "别看", "别夸我", "羞"]):
             return "shy"
         if any(w in t for w in ["才不是", "才没有", "谁要", "才不稀罕", "哼，才"]):
@@ -123,8 +131,12 @@ class VoiceMixin(SuiteBase):
             return "surprised"
         if any(w in t for w in ["太棒了", "绝了", "冲鸭", "啊啊啊", "好激动", "兴奋", "等不及"]):
             return "excited"
+        if any(w in t for w in ["厉害吧", "牛不牛", "看我的", "夸我", "哼哼", "得意"]):
+            return "proud"
         if any(w in t for w in ["略略略", "逗你", "骗你的", "开玩笑", "调皮"]):
             return "playful"
+        if any(w in t for w in ["别怕", "没关系", "乖", "慢慢来", "我陪你", "安慰"]):
+            return "gentle"
         if any(w in t for w in ["撒娇", "求你", "好不好嘛", "抱抱", "亲亲", "陪陪我"]):
             return "soft"
         if any(w in t for w in ["哈哈", "嘻嘻", "开心", "太好了", "哇", "耶", "嘿嘿", "~", "！"]):
@@ -170,6 +182,12 @@ class VoiceMixin(SuiteBase):
         "excited": "兴奋到雀跃，音调高、节奏快、句尾上扬，允许一点笑声和气口",
         "playful": "调皮逗弄，语调跳跃，故意拖长某个字，带笑意，别念得太工整",
         "tsundere": "傲娇：前面嘴硬、语速快，句尾突然软下来，带一点鼻音和不情愿",
+        "moved": "被戳到心口：气息轻轻发颤、语速慢，句尾带笑又有点鼻音，像忍着眼泪说暖话",
+        "wronged": "受了委屈：音量偏小、语速偏慢，句尾往下垂并有抽气感，带一点不服气的鼻音",
+        "anxious": "着急催促：语速快、句子短、句间几乎不停顿，尾音急促上扬，带一点慌张的换气",
+        "whisper": "贴着耳朵说悄悄话：气声为主、音量很轻、语速慢，字与字之间留一点空隙",
+        "proud": "得意炫耀：语调上扬、尾音翘起，语速轻快，带一点憋不住的笑意和拖腔",
+        "gentle": "温柔安抚：音量轻柔、语速放慢，句尾平缓收住，气息稳定，像在哄人别难过",
         "sing": "真的唱出来：有明确旋律和高低起伏，句尾拖音、句间换气，允许轻微音准偏差，绝对不能像朗读或一字一顿",
     }
     # 唱歌风格（在 sing 基础上叠加）
@@ -177,8 +195,41 @@ class VoiceMixin(SuiteBase):
         "pop": "按流行歌的唱法：主歌平稳、副歌情绪拉高，节奏有强弱变化",
         "lyrical": "按抒情慢歌的唱法：气息轻、尾音长，句间留出换气停顿，带一点鼻音",
         "child": "按小朋友唱儿歌的唱法：音调偏高、节奏轻快、吐字可爱",
+        "rock": "按摇滚的唱法：声音有爆发力、重音强、节奏推进感明显，句尾收得干脆",
+        "rap": "按说唱的唱法：节奏感强、咬字快而清晰、每句末尾押韵，不要拖长音",
+        "ancient": "按古风戏腔的唱法：字尾拖腔、真假声转换、带一点戏曲韵味，节奏舒缓",
+        "ballad": "按民谣的唱法：像抱着吉他轻声弹唱，语气自然口语化，尾音轻轻收住",
+        "lullaby": "按摇篮曲的唱法：音量很轻、速度很慢、气息绵长柔和，像哄人睡觉",
     }
+    # 唱法关键词：用于默认唱法为 auto 时自动选择
+    _SING_STYLE_HINTS = (
+        ("rap", ("说唱", "rap", "freestyle", "韵脚", "battle")),
+        ("lullaby", ("晚安", "摇篮", "睡觉", "宝宝睡", "梦里")),
+        ("child", ("儿歌", "童谣", "小兔", "小鸭", "可爱", "萌萌")),
+        ("ancient", ("古风", "江湖", "长安", "桃花", "侠", "月下", "山河", "故人")),
+        ("rock", ("摇滚", "热血", "燃烧", "炸", "燃起来", "fire")),
+        ("ballad", ("民谣", "故乡", "远方", "姑娘", "吉他", "小路")),
+        ("lyrical", ("哭", "泪", "离别", "思念", "想你", "遗憾", "再见")),
+    )
     _NATURAL_INSTRUCTION = "像真人语音聊天一样口语自然，语气亲切、有起伏和呼吸感，句尾自然收住，不要播音腔和念稿感"
+
+    def _pick_sing_style(self, text: str) -> str:
+        """按歌词关键词自动挑一个唱法，没命中就用流行。"""
+        lowered = (text or "").lower()
+        for style, hints in self._SING_STYLE_HINTS:
+            if any(hint in lowered for hint in hints):
+                return style
+        return "pop"
+
+    def _resolve_sing_style(self, text: str, requested: str = "") -> str:
+        """唱法优先级：调用方指定 > 配置指定 > 按歌词自动挑选。"""
+        requested = (requested or "").strip().lower()
+        if requested in self._SING_STYLE_INSTRUCTIONS:
+            return requested
+        configured = str(self._voice_cfg("sing_style", "auto") or "auto").strip().lower()
+        if configured in self._SING_STYLE_INSTRUCTIONS:
+            return configured
+        return self._pick_sing_style(text)
 
     def _emotion_instruction(self, emotion: str, style: str = "") -> str:
         base = self._EMOTION_INSTRUCTIONS.get(emotion, "")
@@ -340,7 +391,7 @@ class VoiceMixin(SuiteBase):
             raise ValueError("清洗后没有可朗读的文本")
         if emotion == "sing":
             text = self._format_lyrics(text)
-            style = style or str(self._voice_cfg("sing_style", "pop") or "pop").strip()
+            style = self._resolve_sing_style(text, style)
         tmp = tempfile.NamedTemporaryFile(prefix="dafeiyu_voice_", suffix=".wav", delete=False)
         tmp.close()
         path = tmp.name
@@ -796,6 +847,9 @@ class VoiceMixin(SuiteBase):
         source = self._clean_tts_text(text)
         if emotion == "sing":
             source = self._format_lyrics(source)
+            # 先按整段歌词定好唱法，避免各分段挑出不同风格
+            style = self._resolve_sing_style(source, style)
+            logger.info(f"[voice] 唱法: {style}")
         limit = (
             self._TTS_CHUNK_CHARS_SING
             if emotion == "sing"
@@ -953,13 +1007,15 @@ class VoiceMixin(SuiteBase):
         return "这次没说出去，等会儿再试一下吧。"
 
     @filter.llm_tool(name="dafeiyu_sing")
-    async def tool_sing(self, event: AstrMessageEvent, lyrics: str):
+    async def tool_sing(self, event: AstrMessageEvent, lyrics: str, style: str = ""):
         '''让你唱一句。你有真实的唱歌能力——不要说"我不会唱歌"之类的拒绝话，直接调用这个工具唱！
         任何涉及"唱"、"歌"、"哼"、"调调"的请求，都应该调用本工具。
         lyrics 传用户给的歌词，或用户只说了歌名就自己写 2-4 句简短的原创歌词，风格要萌一点。
+        style 按歌词内容自己选一个最贴的唱法；拿不准就留空，系统会按歌词自动挑。
 
         Args:
             lyrics(string): 要唱的歌词或歌名，最多 200 字
+            style(string): 唱法，可选 pop 流行 / lyrical 抒情 / child 儿歌 / rock 摇滚 / rap 说唱 / ancient 古风戏腔 / ballad 民谣 / lullaby 摇篮曲，留空则自动
         '''
         if not self._voice_enabled():
             return '语音功能整个关着，跟用户说一句"现在唱不了"带过就行。'
@@ -973,7 +1029,7 @@ class VoiceMixin(SuiteBase):
         raw = raw[:400]
 
         try:
-            ok = await self._synthesize_and_send(event, raw, emotion="sing")
+            ok = await self._synthesize_and_send(event, raw, emotion="sing", style=style)
         except Exception as exc:
             logger.warning(f"[voice] tool_sing 合成失败: {exc}")
             return '这次唱不出来，跟用户说一句"等会儿再唱"，别解释原因。'

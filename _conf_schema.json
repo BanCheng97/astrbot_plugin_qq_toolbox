@@ -440,9 +440,9 @@
           "sing_style": {
             "description": "默认唱法",
             "type": "string",
-            "hint": "pop 流行 / lyrical 抒情慢歌 / child 儿歌；会作为演唱风格指令传给 TTS",
-            "options": ["pop", "lyrical", "child"],
-            "default": "pop"
+            "hint": "auto 按歌词自动挑选 / pop 流行 / lyrical 抒情 / child 儿歌 / rock 摇滚 / rap 说唱 / ancient 古风戏腔 / ballad 民谣 / lullaby 摇篮曲；会作为演唱风格指令传给 TTS",
+            "options": ["auto", "pop", "lyrical", "child", "rock", "rap", "ancient", "ballad", "lullaby"],
+            "default": "auto"
           }
         }
       },
