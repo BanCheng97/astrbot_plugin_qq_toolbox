@@ -188,18 +188,18 @@ class VoiceMixin(SuiteBase):
         "whisper": "贴着耳朵说悄悄话：气声为主、音量很轻、语速慢，字与字之间留一点空隙",
         "proud": "得意炫耀：语调上扬、尾音翘起，语速轻快，带一点憋不住的笑意和拖腔",
         "gentle": "温柔安抚：音量轻柔、语速放慢，句尾平缓收住，气息稳定，像在哄人别难过",
-        "sing": "真的唱出来：有明确旋律和高低起伏，句尾拖音、句间换气，允许轻微音准偏差，绝对不能像朗读或一字一顿",
+        "sing": "以歌声的方式表达，要有旋律起伏和呼吸感",
     }
-    # 唱歌风格（在 sing 基础上叠加）
+    # 唱歌风格（在 sing 基础上叠加，含节奏/BPM 指导）
     _SING_STYLE_INSTRUCTIONS = {
-        "pop": "按流行歌的唱法：主歌平稳、副歌情绪拉高，节奏有强弱变化",
-        "lyrical": "按抒情慢歌的唱法：气息轻、尾音长，句间留出换气停顿，带一点鼻音",
-        "child": "按小朋友唱儿歌的唱法：音调偏高、节奏轻快、吐字可爱",
-        "rock": "按摇滚的唱法：声音有爆发力、重音强、节奏推进感明显，句尾收得干脆",
-        "rap": "按说唱的唱法：节奏感强、咬字快而清晰、每句末尾押韵，不要拖长音",
-        "ancient": "按古风戏腔的唱法：字尾拖腔、真假声转换、带一点戏曲韵味，节奏舒缓",
-        "ballad": "按民谣的唱法：像抱着吉他轻声弹唱，语气自然口语化，尾音轻轻收住",
-        "lullaby": "按摇篮曲的唱法：音量很轻、速度很慢、气息绵长柔和，像哄人睡觉",
+        "pop": "按流行歌唱法：中速 BPM 95-110，每四拍一个小律动点，主歌平稳叙述、副歌情绪拉高，重音落在每句第 2 字，句尾拉长半拍再收，换气在句间自然停顿",
+        "lyrical": "按抒情慢歌唱法：慢速 BPM 55-75，气息轻且绵长，尾音拉长一拍半再轻轻收，句间换气停顿明显（0.6-1 秒），带一点鼻音和气声拖腔",
+        "child": "按小朋友唱儿歌的唱法：较快 BPM 110-130，音调偏高、节奏轻快跳脱，吐字咬得干净可爱，每句末语气上扬像在蹦跳",
+        "rock": "按摇滚的唱法：中快 BPM 120-140，声音有爆发力和嘶吼感，重音放在每句第 1 和第 3 字，节奏推进感明显（哒哒哒-哒），句尾收得干脆不要拖，间奏前有短促换气",
+        "rap": "按说唱的唱法：快节奏 BPM 120-160，咬字快而清晰，每句末尾押韵字稍重音，节奏跟随节拍器感觉（咚-嗒-咚-嗒），句尾不要拖长音直接接下一句",
+        "ancient": "按古风戏腔的唱法：慢 BPM 60-85，字尾拖腔一拍以上，真假声自然转换，带戏曲韵味，节奏舒缓如行云流水，句间留足换气停顿",
+        "ballad": "按民谣的唱法：中速 BPM 80-100，像抱着吉他轻声弹唱，语气自然口语化，尾音轻轻收住不要刻意拖腔，节奏有轻微起伏像弹拨",
+        "lullaby": "按摇篮曲的唱法：极慢 BPM 45-60，音量很轻、气息绵长柔和，每个重音点落在第 1 和第 3 字的拍位上（哒-空-哒-空），句尾拖一拍再慢慢收，像哄人睡觉",
     }
     # 唱法关键词：用于默认唱法为 auto 时自动选择
     _SING_STYLE_HINTS = (
@@ -240,28 +240,90 @@ class VoiceMixin(SuiteBase):
         return base
 
     def _format_lyrics(self, text: str) -> str:
-        """把歌词切成短句并用停顿符连接，让合成有换气与乐句感。"""
+        """把歌词切成短句并标注节拍/换气，让 TTS 感知节奏结构。
+
+        支持显式标记：主歌/副歌/Verse/Chorus/V/C/Bridge/Build/Pre（独立一行或带冒号）。
+        没显式标记时，按位置推断：后半段默认副歌。
+        歌词少于 4 句时不标记（避免短歌词硬分主副歌反而混乱）。
+        """
         raw = re.sub(r"[，,、；;：:]+", "\n", text or "")
         raw = re.sub(r"[。！？!?]+", "\n", raw)
-        lines = [line.strip(" .~～…") for line in raw.splitlines()]
+        lines = [line.strip(" .~～…-—") for line in raw.splitlines()]
         lines = [line for line in lines if line]
         if not lines:
             return (text or "").strip()
-        # 不再截断句数：超长歌词由 _synthesize_and_send 拆成多段语音
-        return "，".join(lines)
+
+        # 先统一清理掉各类标签前缀/后缀，同时判断每句属于主歌还是副歌
+        CHORUS_KEYS = ("副歌", "chorus", "hook", "高潮", "ch")
+        VERSE_KEYS = ("主歌", "verse", "v")
+        sectioned: list[tuple[str, str]] = []  # (歌词, "verse"|"chorus")
+        current_section = "verse"  # 起始默认主歌
+        for line in lines:
+            lower = line.lower()
+            stripped = line
+            is_label = False
+            # 整行就是标签（允许带冒号/空格）
+            for label in ("主歌", "副歌", "verse", "chorus", "hook", "高潮", "ch", "bridge", "build", "pre"):
+                # 匹配 "主歌" / "主歌：" / "主歌一" / "Verse 1" / "Chorus" 等
+                if re.fullmatch(rf"{label}\s*[:：\-]?\s*\d*", lower, flags=re.IGNORECASE):
+                    is_label = True
+                    break
+            # 行首标签（如 "副歌：这就是爱"）
+            m = re.match(r"^(主歌|副歌|verse|chorus|hook|高潮|ch)\s*[:：\-]?\s*(.*)$", line, flags=re.IGNORECASE)
+            if m:
+                current_section = (
+                    "chorus" if m.group(1).lower() in (k.lower() for k in CHORUS_KEYS) else "verse"
+                )
+                stripped = m.group(2).strip()
+                is_label = stripped == ""  # 只有标签字才算纯标签行，标签带歌词则保留
+            elif any(k in lower for k in CHORUS_KEYS):
+                current_section = "chorus"
+            elif any(k in lower for k in VERSE_KEYS):
+                current_section = "verse"
+
+            if is_label or not stripped:
+                continue
+            sectioned.append((stripped, current_section))
+
+        if not sectioned:
+            return ""
+
+        # 如果完全没显式章节标记，按位置推断（后半段副歌）
+        if all(sec == "verse" for _, sec in sectioned):
+            mid = len(sectioned) // 2
+            sectioned = [(txt, "chorus" if i >= mid else "verse") for i, (txt, _) in enumerate(sectioned)]
+
+        # 短歌词（<4 句）不标记节拍，直接用普通节奏
+        if len(sectioned) < 4:
+            return "，".join(txt for txt, _ in sectioned)
+
+        # 生成带节拍标记的歌词：副歌情绪拉高尾音拉长，主歌换气停顿
+        marked: list[str] = []
+        for txt, sec in sectioned:
+            txt = txt.strip("，。；;、 ")
+            if not txt:
+                continue
+            if sec == "chorus":
+                marked.append(f"{txt}，（副歌，情绪拉高，尾音拉长）")
+            else:
+                marked.append(f"{txt}，（主歌，换气停顿）")
+
+        return " ".join(marked)
 
     _EMOJI_RE = re.compile(
         "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\uFE0F\u200D\u2190-\u21FF\u2B00-\u2BFF]+"
     )
 
-    def _clean_tts_text(self, text: str) -> str:
+    def _clean_tts_text(self, text: str, emotion: str = "normal") -> str:
         """清洗 LLM 回复里的 emoji / markdown / 括号动作，避免被念出来显得机械。"""
         t = text or ""
         t = re.sub(r"https?://\S+", "", t)                        # 链接
         t = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", t)            # markdown 链接
         t = re.sub(r"\|", "，", t)                                # 表格分隔
         t = re.sub(r"[*_`#>•·●○■□]+", "", t)                      # markdown 标记
-        t = re.sub(r"[（(【\[][^）)】\]]{0,40}[）)】\]]", "", t)    # 括号里的动作描写
+        # 唱歌时保留（主歌/副歌/换气）这类节拍标记，让 TTS 感知节奏结构
+        if emotion != "sing":
+            t = re.sub(r"[（(【\[][^）)】\]]{0,40}[）)】\]]", "", t)
         t = self._EMOJI_RE.sub("", t)                             # emoji
         t = re.sub(r"[~～]+", "", t)                               # 波浪号
         t = re.sub(r"\s*\n+\s*", "。", t)                          # 换行 → 停顿
@@ -405,7 +467,7 @@ class VoiceMixin(SuiteBase):
         """合成到临时 wav 路径，返回路径。tts_backend=mimo 走 MiMo，否则内置 provider → BreezeBlue。"""
         if not text or not text.strip():
             raise ValueError("要合成的文本是空的")
-        text = self._clean_tts_text(text)
+        text = self._clean_tts_text(text, emotion)
         if not text:
             raise ValueError("清洗后没有可朗读的文本")
         if emotion == "sing":
@@ -863,7 +925,7 @@ class VoiceMixin(SuiteBase):
         style: str = "",
     ) -> bool:
         """把文本分段合成语音并依次发送，单段控制在 60 秒以内。"""
-        source = self._clean_tts_text(text)
+        source = self._clean_tts_text(text, emotion)
         if emotion == "sing":
             source = self._format_lyrics(source)
             # 先按整段歌词定好唱法，避免各分段挑出不同风格
