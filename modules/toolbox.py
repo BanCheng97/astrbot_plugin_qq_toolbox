@@ -25,7 +25,6 @@ import os
 import random
 import re
 import time
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -42,194 +41,28 @@ from .base import SuiteBase, append_temp, to_int
 # 沿用旧插件的数据目录名，历史说说与操作记录可以直接继承
 NAME = "astrbot_plugin_qq_toolbox"
 
-UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+from ._qzone import (
+    UA,
+    BASE_URL,
+    API_UPLOAD,
+    API_PUBLISH,
+    API_DELETE,
+    API_COMMENT,
+    API_REPLY,
+    API_LIST,
+    API_LIKE,
+    CODE_LOGIN_EXPIRED,
+    CODE_IMAGE_EXPIRED,
+    MOODS,
+    DEFAULT_POST_PROMPT,
+    HELP_TEXT,
+    parse_cookies,
+    extract_cookies,
+    parse_json,
+    split_sources,
+    clean_text,
+    QZoneSession,
 )
-
-BASE_URL = "https://user.qzone.qq.com"
-
-# 空间接口（与参考插件保持一致）
-API_UPLOAD = "https://up.qzone.qq.com/cgi-bin/upload/cgi_upload_image"
-API_PUBLISH = (
-    "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_publish_v6"
-)
-API_DELETE = (
-    "https://h5.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_delete_v6"
-)
-API_COMMENT = (
-    "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
-)
-API_REPLY = (
-    "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
-)
-API_LIST = (
-    "https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msglist_v6"
-)
-API_LIKE = (
-    "https://user.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app"
-)
-
-# 登录态失效的错误码
-CODE_LOGIN_EXPIRED = -3000
-CODE_IMAGE_EXPIRED = -100
-
-# 主人话里出现这些词，就提醒她这次可以顺手改个签名
-MOODS = {
-    "在夸你": ["真棒", "真厉害", "好厉害", "你厉害", "太强了", "好聪明", "真聪明", "真乖", "好可爱", "真可爱", "最喜欢你", "夸你"],
-    "在说你，你有点委屈": ["好笨", "真笨", "笨死", "笨蛋", "讨厌你", "烦死", "没用", "闭嘴", "滚", "傻", "凶你", "不理你"],
-    "说今天是他的生日": ["我生日", "我的生日", "生日快乐", "过生日"],
-}
-
-DEFAULT_POST_PROMPT = (
-    "写一条你此刻的 QQ 空间说说，用你自己的口吻，40 字以内，可以带一点情绪、吐槽或感慨。"
-)
-
-HELP_TEXT = """QQ 助手指令（也可以直接用大白话跟她说，不必用指令）：
-/改头像（消息附图片）  修改机器人头像
-/改昵称 <昵称>  修改机器人 QQ 昵称
-/改签名 <内容>  修改机器人个性签名
-/名片赞 [@某人] [次数]  给名片点赞
-/发说说 <内容>（可附图）  发布空间说说
-/ai说说 [主题]  让她用模型自己写一条说说（也可用 /写说说）
-/说说列表 [数量]  查看最近说说（带序号和评论序号）
-/赞说说 [序号]  给说说点赞
-/评说说 [序号] <内容>  评论说说
-/回复评论 <说说序号> <评论序号> <内容>  回复某条评论
-/删说说 [序号]  删除说说"""
-
-
-def hash33(seed: str) -> int:
-    """QQ 空间 g_tk 计算。"""
-    value = 5381
-    for char in seed:
-        value += (value << 5) + ord(char)
-    return value & 0x7FFFFFFF
-
-
-def parse_cookies(raw: Any) -> dict[str, str]:
-    """把字符串 / 列表 / 字典形态的 Cookie 统一成字典。"""
-    jar: dict[str, str] = {}
-    if not raw:
-        return jar
-    if isinstance(raw, dict):
-        return {str(k): str(v) for k, v in raw.items()}
-    if isinstance(raw, list):
-        for item in raw:
-            if isinstance(item, dict) and item.get("name") is not None:
-                jar[str(item["name"])] = str(item.get("value", ""))
-        return jar
-    if isinstance(raw, str):
-        for part in raw.split(";"):
-            part = part.strip()
-            if not part:
-                continue
-            if "=" in part:
-                key, _, val = part.partition("=")
-                jar[key.strip()] = val.strip()
-            else:
-                jar[part] = ""
-    return jar
-
-
-def extract_cookies(resp: Any) -> str:
-    """从 get_cookies / get_credentials 的返回中取出 Cookie 字符串。"""
-    if not isinstance(resp, dict):
-        return ""
-    data = resp.get("data", resp)
-    if isinstance(data, str):
-        return data.strip()
-    if isinstance(data, dict):
-        for key in ("cookies", "cookie"):
-            val = data.get(key)
-            if isinstance(val, str) and val.strip():
-                return val.strip()
-            if isinstance(val, list):
-                parts = [
-                    f"{item.get('name')}={item.get('value', '')}"
-                    for item in val
-                    if isinstance(item, dict) and item.get("name") is not None
-                ]
-                if parts:
-                    return "; ".join(parts)
-    return ""
-
-
-def parse_json(text: str) -> dict:
-    """解析 JSONP / 非标准 JSON 响应。"""
-    text = (text or "").strip()
-    if not text:
-        raise RuntimeError("空间接口返回内容为空")
-    if "data error" in text[:200].lower():
-        raise RuntimeError("空间接口返回 data error：登录态或 g_tk 可能失效")
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        raise RuntimeError(f"空间接口返回内容异常：{text[:120]}")
-    payload = text[start:end + 1].replace("undefined", "null")
-    try:
-        data = json.loads(payload)
-    except json.JSONDecodeError:
-        try:
-            import json5  # type: ignore
-
-            data = json5.loads(payload)
-        except Exception as exc:
-            snippet = re.sub(r"\s+", " ", text)[:160]
-            raise RuntimeError(f"空间接口返回的不是 JSON：{snippet}") from exc
-    if not isinstance(data, dict):
-        raise RuntimeError("空间接口返回的不是对象")
-    return data
-
-
-def split_sources(raw: str) -> list[str]:
-    """把逗号/空格/换行分隔的图片地址拆开。"""
-    return [item for item in re.split(r"[\s,，;]+", raw or "") if item]
-
-
-def clean_text(value: Any, limit: int = 80) -> str:
-    """去掉空间正文里的 HTML / 表情标记，压成一行。"""
-    text = re.sub(r"<[^>]+>", "", str(value or ""))
-    text = re.sub(r"\[em\].*?\[/em\]", "", text)
-    text = re.sub(r"\{.*?\}", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:limit] + "…" if len(text) > limit else text
-
-
-@dataclass
-class QZoneSession:
-    """一次空间请求所需的登录上下文。"""
-
-    uin: str
-    skey: str = ""
-    p_skey: str = ""
-    csrf_token: str = ""
-
-    @property
-    def g_tk(self) -> str:
-        seed = self.p_skey or self.skey
-        if seed:
-            return str(hash33(seed))
-        if self.csrf_token.isdigit():
-            return self.csrf_token
-        return "0"
-
-    def cookies(self) -> dict[str, str]:
-        return {
-            "uin": f"o{self.uin}",
-            "skey": self.skey,
-            "p_skey": self.p_skey,
-        }
-
-    def headers(self, url: str) -> dict[str, str]:
-        host = urlparse(url).hostname or "user.qzone.qq.com"
-        return {
-            "User-Agent": UA,
-            "Referer": f"{BASE_URL}/{self.uin}",
-            "Origin": BASE_URL,
-            "Host": host,
-            "Connection": "keep-alive",
-        }
-
 
 class ToolboxMixin(SuiteBase):
     # 写操作频控：每日上限（配置键, 默认值, 中文名）
@@ -586,6 +419,14 @@ class ToolboxMixin(SuiteBase):
                 timeout=timeout, retry=retry + 1,
             )
 
+        # 非 JSON（通常是 HTML 登录页/跨域包装页）：直接给出域名线索，避免模糊报错
+        stripped = text.lstrip()
+        if stripped.startswith("<"):
+            host = urlparse(url).hostname or url
+            raise RuntimeError(
+                f"空间接口返回了 HTML 页面而非 JSON（{host}，HTTP {status}），"
+                "通常是接口域名与 Referer 不匹配或登录态失效"
+            )
         payload = parse_json(text)
         if status == 403:
             raise RuntimeError("空间权限不足（403）：Cookie 可能失效，或该操作没有权限")
@@ -1167,6 +1008,14 @@ class ToolboxMixin(SuiteBase):
             return None
         return "只有主人能让你操作 QQ。用你的口吻轻轻拒绝，别提工具和设置。"
 
+    def _tool_denied(self, event: AstrMessageEvent, action: str = "") -> str | None:
+        """LLM 工具的统一权限前置：非主人时可选打日志，返回拒绝文案或 None。"""
+        denied = self._tool_guard(event)
+        if denied and action:
+            logger.info(f"[qq_toolbox] 非主人{action}请求：{event.get_sender_id()}")
+        return denied
+
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message_cache_image(self, event: AstrMessageEvent):
         """记下每个人最近发的一张图。
@@ -1260,9 +1109,8 @@ class ToolboxMixin(SuiteBase):
         Args:
             nickname(string): 新的 QQ 昵称，不超过 12 个字
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event, "改昵称")
         if denied:
-            logger.info(f"[qq_toolbox] 非主人改昵称请求：{event.get_sender_id()}")
             return denied
         return await self._change_nickname(event, nickname)
 
@@ -1276,9 +1124,8 @@ class ToolboxMixin(SuiteBase):
         Args:
             image_url(string): 可选，图片链接；留空则使用当前消息里的图片
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event, "换头像")
         if denied:
-            logger.info(f"[qq_toolbox] 非主人换头像请求：{event.get_sender_id()}")
             return denied
         source = (image_url or "").strip() or self._find_image(event)
         if not source:
@@ -1304,9 +1151,8 @@ class ToolboxMixin(SuiteBase):
             owner_asked(boolean): 是不是主人叫你改的
             reason(string): 为什么改，几个字，比如「主人夸我」「主人生日」「主人让改」
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event, "改签名")
         if denied:
-            logger.info(f"[qq_toolbox] 非主人改签名请求：{event.get_sender_id()}")
             return denied
         return await self._change_signature(event, signature, owner_asked, reason)
 
@@ -1320,7 +1166,7 @@ class ToolboxMixin(SuiteBase):
             content(string): 说说正文
             images(string): 可选，最多 9 张图片，多个地址用逗号或空格隔开；没有图片就留空
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event)
         if denied:
             return denied
         return await self._post_feed(event, content, split_sources(images), speaker="owner")
@@ -1334,7 +1180,7 @@ class ToolboxMixin(SuiteBase):
         Args:
             topic(string): 主人给的主题，没给就留空
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event)
         if denied:
             return denied
         return await self._ai_post(event, topic)
@@ -1346,7 +1192,7 @@ class ToolboxMixin(SuiteBase):
         Args:
             count(string): 看最近几条，1-20，默认 5
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event)
         if denied:
             return denied
         count = max(1, min(to_int(count, 5), 20))
@@ -1368,7 +1214,7 @@ class ToolboxMixin(SuiteBase):
         Args:
             target(string): 说说序号（从 1 开始），也可以直接填 tid；省略则点最新一条
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event)
         if denied:
             return denied
         limited = self._limit("like")
@@ -1393,7 +1239,7 @@ class ToolboxMixin(SuiteBase):
             content(string): 评论内容
             target(string): 说说序号（从 1 开始）或 tid，省略则评论最新一条
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event)
         if denied:
             return denied
         content = (content or "").strip()
@@ -1423,7 +1269,7 @@ class ToolboxMixin(SuiteBase):
             comment(string): 评论序号，从 1 开始
             content(string): 回复内容
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event)
         if denied:
             return denied
         content = (content or "").strip()
@@ -1450,7 +1296,7 @@ class ToolboxMixin(SuiteBase):
         Args:
             target(string): 说说序号（从 1 开始）或 tid
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event)
         if denied:
             return denied
         if not str(target or "").strip():
@@ -1477,7 +1323,7 @@ class ToolboxMixin(SuiteBase):
             user_id(string): 目标 QQ 号
             times(string): 点赞次数，1-20，默认 10
         '''
-        denied = self._tool_guard(event)
+        denied = self._tool_denied(event)
         if denied:
             return denied
         if not str(user_id or "").strip().isdigit():

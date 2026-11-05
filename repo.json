@@ -2,16 +2,16 @@
   "$meta": {
     "schema_version": 1,
     "name": "大肥鱼工具箱",
-    "version": "2026-11-02",
+    "version": "2026-11-05",
     "homepage": "https://github.com/BanCheng97",
     "repository": "https://github.com/BanCheng97/astrbot_plugin_qq_toolbox",
     "description": "告状传话、DeepSeek 用量查询、语音听写与多情绪合成（含唱歌）、QQ 头像昵称签名与说说互动、长期记忆、认主（多位主人与称呼）、主动搭话，内置统一可视化控制台",
-    "updated_at": "2026-11-02T00:00:00Z"
+    "updated_at": "2026-11-05T00:00:00Z"
   },
   "半城/astrbot_plugin_dafeiyu_toolbox": {
     "author": "半城",
     "name": "astrbot_plugin_dafeiyu_toolbox",
-    "version": "2.4.8",
+    "version": "2.4.9",
     "repo": "https://github.com/BanCheng97/astrbot_plugin_qq_toolbox",
     "desc": "被欺负会私聊家人告状、家人间传话；查 DeepSeek 余额与低余额提醒；语音听写/合成（19 种情绪、唱歌 8 种唱法可自动挑选）；QQ 头像昵称签名、名片赞、发说说、AI 写说说、说说互动；长期记忆（本地 JSON 存短事实、自动抽取、回复前注入）；认主（多位主人、每人一个称呼、聊天前注入）；主动搭话（安静时段按人格定时开口、带时间与记忆、深夜不打扰）；内置统一可视化控制台",
     "display_name": "大肥鱼工具箱",
