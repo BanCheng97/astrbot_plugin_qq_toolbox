@@ -68,7 +68,25 @@ from .modules.base import MISSING, flatten_dict, nested_get, nested_set, to_bool
 
 PLUGIN_NAME = "astrbot_plugin_dafeiyu_toolbox"
 ALIAS_NAMES = ("astrbot_plugin_dafeiyu_suite", "astrbot_plugin_qq_toolbox")
-SUITE_VERSION = "2.4.1"
+
+
+def _read_suite_version() -> str:
+    """从 metadata.yaml 读取版本号，避免与发布版本脱节；读不到时回退默认值。"""
+    import re
+
+    meta_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "metadata.yaml")
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            for line in f:
+                match = re.match(r"^\s*version\s*:\s*([^\s#]+)", line)
+                if match:
+                    return match.group(1).strip()
+    except Exception:
+        pass
+    return "2.4.1"
+
+
+SUITE_VERSION = _read_suite_version()
 
 PLUGIN_ROOT = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_PATH = os.path.join(PLUGIN_ROOT, "_conf_schema.json")
