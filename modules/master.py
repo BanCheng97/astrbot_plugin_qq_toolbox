@@ -383,6 +383,8 @@ class MasterMixin(SuiteBase):
 
     @filter.command("认主")
     async def cmd_master_claim(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         if not bool(self._master_cfg("enabled", True)):
             yield event.plain_result("认主功能关着。")
             return
@@ -438,6 +440,8 @@ class MasterMixin(SuiteBase):
 
     @filter.command("主人列表")
     async def cmd_master_list(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         items = self._master_items()
         if not items:
             yield event.plain_result("还没有认主。发 /认主 称呼 就可以认她当主人。")
@@ -453,6 +457,8 @@ class MasterMixin(SuiteBase):
 
     @filter.command("改称呼")
     async def cmd_master_rename(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         if not self._master_can_manage(event):
             yield event.plain_result("只有主人或管理员才能改称呼。")
             return
@@ -470,6 +476,8 @@ class MasterMixin(SuiteBase):
 
     @filter.command("取消认主")
     async def cmd_master_remove(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         if not self._master_can_manage(event):
             yield event.plain_result("只有主人或管理员才能取消认主。")
             return
@@ -485,4 +493,6 @@ class MasterMixin(SuiteBase):
 
     @filter.command("认主帮助")
     async def cmd_master_help(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         yield event.plain_result(HELP_TEXT)

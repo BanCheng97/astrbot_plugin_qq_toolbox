@@ -563,6 +563,8 @@ class ComplainMixin(SuiteBase):
 
     @filter.command("告状")
     async def cmd_complain(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         if not self._complain_is_owner(event):
             yield event.plain_result("你没有权限使用该指令")
             return
@@ -588,4 +590,6 @@ class ComplainMixin(SuiteBase):
 
     @filter.command("告状帮助")
     async def cmd_complain_help(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         yield event.plain_result(HELP_TEXT)

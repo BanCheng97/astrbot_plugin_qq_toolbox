@@ -556,6 +556,8 @@ class ProactiveMixin(SuiteBase):
     @filter.command("主动说话")
     async def cmd_proactive_say(self, event: AstrMessageEvent):
         """手动让她给最近聊过的会话发一条，用于测试或想她了的时候。"""
+        if not self._is_explicit_command(event):
+            return
         if not self._proactive_can_manage(event):
             yield event.plain_result("只有主人或管理员能让她主动说话。")
             return
@@ -585,4 +587,6 @@ class ProactiveMixin(SuiteBase):
 
     @filter.command("主动帮助")
     async def cmd_proactive_help(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         yield event.plain_result(HELP_TEXT)

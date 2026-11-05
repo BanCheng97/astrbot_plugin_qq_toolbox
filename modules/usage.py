@@ -643,6 +643,8 @@ class UsageMixin(SuiteBase):
 
     @filter.command("用量")
     async def cmd_usage(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         denied = self._cmd_denied(event)
         if denied:
             yield event.plain_result(denied)
@@ -658,6 +660,8 @@ class UsageMixin(SuiteBase):
 
     @filter.command("余额")
     async def cmd_balance(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         denied = self._cmd_denied(event)
         if denied:
             yield event.plain_result(denied)
@@ -677,4 +681,6 @@ class UsageMixin(SuiteBase):
 
     @filter.command("用量帮助")
     async def cmd_usage_help(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         yield event.plain_result(HELP_TEXT)

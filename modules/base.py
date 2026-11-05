@@ -250,3 +250,19 @@ class SuiteBase:
         except Exception:
             pass
         return None
+
+    @staticmethod
+    def _is_explicit_command(event: Any) -> bool:
+        """兜底斜杠指令只响应显式的 ``/指令``。
+
+        AstrBot 私聊里裸命令词（例如「改签名」「说」「记住」）也会被
+        ``filter.command`` 命中，导致兜底通道抢在 LLM 主路径前面弹「用法」
+        或直接执行。这里要求消息以 ``/`` 开头才算显式指令，否则 handler
+        静默 return，把消息交还给 LLM 自然对话处理。群聊本来就需要 ``/``
+        或 @ 才能唤醒，不受影响。
+        """
+        try:
+            text = str(getattr(event, "message_str", "") or "").lstrip()
+        except Exception:
+            return False
+        return text.startswith("/")

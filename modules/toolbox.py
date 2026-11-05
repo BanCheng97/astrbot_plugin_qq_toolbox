@@ -419,13 +419,18 @@ class ToolboxMixin(SuiteBase):
                 timeout=timeout, retry=retry + 1,
             )
 
-        # 非 JSON（通常是 HTML 登录页/跨域包装页）：直接给出域名线索，避免模糊报错
+        # 非 JSON（通常是 HTML 登录页/跨域包装页）：先把响应内容打进日志，再给用户简洁报错
         stripped = text.lstrip()
         if stripped.startswith("<"):
             host = urlparse(url).hostname or url
+            snippet = re.sub(r"\s+", " ", text)[:600]
+            logger.warning(
+                f"[qq_toolbox] 接口返回 HTML 而非 JSON：{url}（HTTP {status}），"
+                f"响应片段：{snippet}"
+            )
             raise RuntimeError(
                 f"空间接口返回了 HTML 页面而非 JSON（{host}，HTTP {status}），"
-                "通常是接口域名与 Referer 不匹配或登录态失效"
+                "通常是接口参数或 Referer 不对，或登录态失效"
             )
         payload = parse_json(text)
         if status == 403:
@@ -572,13 +577,9 @@ class ToolboxMixin(SuiteBase):
                 "feedsAppid": "311",
                 "feedsTime": str(int(time.time())),
                 "fupdate": "1",
+                "format": "json",
                 "ref": "feeds",
-                "qzreferrer": (
-                    "https://user.qzone.qq.com/proxy/domain/ic2.qzone.qq.com/"
-                    f"cgi-bin/feeds/feeds_html_module?g_iframeUser=1&i_uin={sess.uin}"
-                    f"&i_login_uin={sess.uin}&mode=4&previewV8=1&style=35&version=8"
-                    "&needDelOpr=true"
-                ),
+                "qzreferrer": f"{BASE_URL}/{sess.uin}",
             },
         )
         return self._check(payload, "删除说说")
@@ -828,8 +829,7 @@ class ToolboxMixin(SuiteBase):
 
     async def _change_signature(self, event: AstrMessageEvent, signature: str, owner_asked: bool, reason: str) -> str:
         signature = (signature or "").strip().strip("「」“”\"'")
-        if not signature:
-            return "签名是空的，没改。"
+        is_clear = not signature  # 空字符串 = 清空（删除）签名
         max_len = int(self._toolbox_cfg("max_length") or 40)
         if len(signature) > max_len:
             return f"签名太长了（{len(signature)} 个字），缩到 {max_len} 个字以内再调用一次。"
@@ -851,6 +851,8 @@ class ToolboxMixin(SuiteBase):
             None,
         )
         if last_sig and last_sig.get("signature") == signature:
+            if is_clear:
+                return "签名已经是空的了，不用再删。"
             return "签名本来就是这句，不用改。"
 
         try:
@@ -874,7 +876,14 @@ class ToolboxMixin(SuiteBase):
                 "session": getattr(event, "unified_msg_origin", ""),
             }
         )
-        logger.info(f"[qq_toolbox] 签名改成「{signature}」 owner_asked={owner_asked} reason={reason}")
+        logger.info(
+            f"[qq_toolbox] 签名{'清空' if is_clear else '改成「' + signature + '」'} "
+            f"owner_asked={owner_asked} reason={reason}"
+        )
+        if is_clear:
+            if owner_asked:
+                return "签名已经清空（删掉）了。用一句话跟主人说删好了就行。"
+            return "签名已经清空（删掉）了。可以顺嘴跟主人提一句，一句话就够，也可以不提。"
         if owner_asked:
             return f"签名已经改成「{signature}」。用一句话跟主人说改好了就行。"
         return f"签名已经改成「{signature}」。可以顺嘴跟主人提一句你改了签名，一句话就够，也可以不提。"
@@ -1141,15 +1150,16 @@ class ToolboxMixin(SuiteBase):
     async def tool_set_signature(
         self, event: AstrMessageEvent, signature: str, owner_asked: bool = False, reason: str = ""
     ):
-        '''改你自己的 QQ 个性签名。
+        '''改你自己的 QQ 个性签名，也可以删掉（清空）。
         - 主人叫你改，怎么说都算（「把签名改成……」「换个签名」「签名写上我生日快乐」）：照主人的意思写，owner_asked 填 true。
+        - 主人叫你删掉/清空签名（「把签名删了」「签名清空」「不要签名了」）：signature 传空字符串 ""，owner_asked 填 true。
         - 不用主人开口，你自己也会改：主人夸你、你受了委屈或者生气了、主人过生日、碰上值得记一笔的事，就顺手调用一次，写一句你当下的心情，owner_asked 填 false。平常闲聊别改；一天最多自己改两次，用完了工具会告诉你。
         签名用你自己的口吻，一句话，不超过 30 个字，不加引号。改完可以顺嘴跟主人提一句。别人（不是主人）叫你改，不要调用。
 
         Args:
-            signature(string): 新签名，一句话，不超过 30 个字
+            signature(string): 新签名，一句话，不超过 30 个字；要删掉/清空就传空字符串 ""
             owner_asked(boolean): 是不是主人叫你改的
-            reason(string): 为什么改，几个字，比如「主人夸我」「主人生日」「主人让改」
+            reason(string): 为什么改，几个字，比如「主人夸我」「主人生日」「主人让改」「主人让删」
         '''
         denied = self._tool_denied(event, "改签名")
         if denied:
@@ -1344,10 +1354,14 @@ class ToolboxMixin(SuiteBase):
 
     @filter.command("qq帮助")
     async def cmd_toolbox_help(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         yield event.plain_result(HELP_TEXT)
 
     @filter.command("改头像")
     async def cmd_avatar(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         err = self._guard(event)
         if err:
             yield event.plain_result(err)
@@ -1366,6 +1380,8 @@ class ToolboxMixin(SuiteBase):
 
     @filter.command("改昵称")
     async def cmd_nickname(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         err = self._guard(event)
         if err:
             yield event.plain_result(err)
@@ -1379,19 +1395,32 @@ class ToolboxMixin(SuiteBase):
 
     @filter.command("改签名")
     async def cmd_signature(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         err = self._guard(event)
         if err:
             yield event.plain_result(err)
             return
         text = self._arg(event, "改签名")
-        if not text:
-            yield event.plain_result("用法：/改签名 你想设置的签名")
-            return
+        # 不带内容 = 清空（删除）签名；带内容 = 设置新签名
         result = await self._change_signature(event, text, owner_asked=True, reason="主人让改")
+        yield event.plain_result(result)
+
+    @filter.command("删签名")
+    async def cmd_clear_signature(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
+        err = self._guard(event)
+        if err:
+            yield event.plain_result(err)
+            return
+        result = await self._change_signature(event, "", owner_asked=True, reason="主人让删")
         yield event.plain_result(result)
 
     @filter.command("名片赞")
     async def cmd_like_card(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         err = self._guard(event)
         if err:
             yield event.plain_result(err)
@@ -1440,6 +1469,8 @@ class ToolboxMixin(SuiteBase):
 
     @filter.command("发说说")
     async def cmd_publish(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         err = self._guard(event)
         if err:
             yield event.plain_result(err)
@@ -1462,16 +1493,22 @@ class ToolboxMixin(SuiteBase):
 
     @filter.command("ai说说")
     async def cmd_ai_post(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         async for result in self._ai_post_cmd(event, "ai说说"):
             yield result
 
     @filter.command("写说说")
     async def cmd_ai_post_alias(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         async for result in self._ai_post_cmd(event, "写说说"):
             yield result
 
     @filter.command("说说列表")
     async def cmd_list(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         err = self._guard(event)
         if err:
             yield event.plain_result(err)
@@ -1499,6 +1536,8 @@ class ToolboxMixin(SuiteBase):
 
     @filter.command("赞说说")
     async def cmd_like_feed(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         err = self._guard(event)
         if err:
             yield event.plain_result(err)
@@ -1547,21 +1586,29 @@ class ToolboxMixin(SuiteBase):
 
     @filter.command("评说说")
     async def cmd_comment(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         async for result in self._comment_flow(event, "评说说"):
             yield result
 
     @filter.command("评论说说")
     async def cmd_comment_full(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         async for result in self._comment_flow(event, "评论说说"):
             yield result
 
     @filter.command("回复说说")
     async def cmd_comment_reply(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         async for result in self._comment_flow(event, "回复说说"):
             yield result
 
     @filter.command("回复评论")
     async def cmd_reply_comment(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         err = self._guard(event)
         if err:
             yield event.plain_result(err)
@@ -1590,6 +1637,8 @@ class ToolboxMixin(SuiteBase):
 
     @filter.command("删说说")
     async def cmd_delete(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         err = self._guard(event)
         if err:
             yield event.plain_result(err)

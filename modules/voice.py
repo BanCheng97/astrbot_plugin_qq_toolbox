@@ -1122,6 +1122,8 @@ class VoiceMixin(SuiteBase):
 
     @filter.command("说")
     async def cmd_say(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         if not self._voice_enabled():
             yield event.plain_result("语音模块已关闭，去控制台「语音」页签打开总开关再用。")
             return
@@ -1140,6 +1142,8 @@ class VoiceMixin(SuiteBase):
 
     @filter.command("唱")
     async def cmd_sing(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         if not self._voice_enabled():
             yield event.plain_result("语音模块已关闭，去控制台「语音」页签打开总开关再用。")
             return
@@ -1158,10 +1162,14 @@ class VoiceMixin(SuiteBase):
     @filter.command("听到")
     async def cmd_listen(self, event: AstrMessageEvent):
         """转写最近一条语音（手动触发，调试用）。"""
+        if not self._is_explicit_command(event):
+            return
         yield event.plain_result("请先发一条语音，再用这条指令。")
 
     @filter.command("声音帮助")
     async def cmd_voice_help(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         yield event.plain_result(
             "声音插件用法：\n"
             "• 直接发语音给她，她会自动听懂\n"

@@ -407,6 +407,8 @@ class MemoryMixin(SuiteBase):
 
     @filter.command("记忆")
     async def cmd_memory(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         arg = self._memory_arg(event, "记忆")
         sender = str(event.get_sender_id() or "")
         if arg.isdigit() and arg != sender:
@@ -423,6 +425,8 @@ class MemoryMixin(SuiteBase):
 
     @filter.command("记住")
     async def cmd_memory_remember(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         arg = self._memory_arg(event, "记住")
         if not arg:
             yield event.plain_result("用法：/记住 你想让我记住的事")
@@ -434,6 +438,8 @@ class MemoryMixin(SuiteBase):
 
     @filter.command("忘掉")
     async def cmd_memory_forget(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         arg = self._memory_arg(event, "忘掉")
         if not arg:
             yield event.plain_result("用法：/忘掉 关键词")
@@ -446,6 +452,8 @@ class MemoryMixin(SuiteBase):
 
     @filter.command("清空记忆")
     async def cmd_memory_clear(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         arg = self._memory_arg(event, "清空记忆")
         if arg == "全部":
             if not self._complain_is_owner(event):
@@ -459,4 +467,6 @@ class MemoryMixin(SuiteBase):
 
     @filter.command("记忆帮助")
     async def cmd_memory_help(self, event: AstrMessageEvent):
+        if not self._is_explicit_command(event):
+            return
         yield event.plain_result(HELP_TEXT)
