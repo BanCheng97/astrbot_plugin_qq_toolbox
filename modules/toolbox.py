@@ -449,9 +449,17 @@ class ToolboxMixin(SuiteBase):
                 timeout=timeout, retry=retry + 1,
             )
 
-        # 非 JSON（通常是 HTML 登录页/跨域包装页）：先把响应内容打进日志，再给用户简洁报错
+        # Qzone 部分接口（如评论 emotion_cgi_re_feeds 用 format=fs）会把 JSON 包在
+        # <html><script>...callback({...})...</script></html> 里返回。先尝试解析其中的
+        # JSON；只有解析不出来时，才当作真正的 HTML 错误页（登录跳转 / 参数错误）处理。
         stripped = text.lstrip()
+        payload = None
         if stripped.startswith("<"):
+            try:
+                payload = parse_json(text)
+            except Exception:
+                payload = None
+        if payload is None and stripped.startswith("<"):
             host = urlparse(url).hostname or url
             snippet = re.sub(r"\s+", " ", text)[:600]
             logger.warning(
@@ -462,7 +470,8 @@ class ToolboxMixin(SuiteBase):
                 f"空间接口返回了 HTML 页面而非 JSON（{host}，HTTP {status}），"
                 "通常是接口参数或 Referer 不对，或登录态失效"
             )
-        payload = parse_json(text)
+        if payload is None:
+            payload = parse_json(text)
         if status == 403:
             raise RuntimeError("空间权限不足（403）：Cookie 可能失效，或该操作没有权限")
         if self._is_login_expired(payload) and retry < 2:

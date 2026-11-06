@@ -2,6 +2,7 @@
 
 from .base import SuiteBase
 from .complain import ComplainMixin
+from .comment_watch import CommentWatchMixin
 from .master import MasterMixin
 from .memory import MemoryMixin
 from .proactive import ProactiveMixin
@@ -12,6 +13,7 @@ from .voice import VoiceMixin
 __all__ = [
     "SuiteBase",
     "ComplainMixin",
+    "CommentWatchMixin",
     "MasterMixin",
     "MemoryMixin",
     "ProactiveMixin",

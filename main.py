@@ -56,6 +56,7 @@ except Exception:  # pragma: no cover - 仅用于老版本 / 本地单测
     request = _FallbackRequest()  # type: ignore[assignment]
 
 from .modules import (
+    CommentWatchMixin,
     ComplainMixin,
     MasterMixin,
     MemoryMixin,
@@ -268,6 +269,7 @@ class DafeiyuSuitePlugin(
     UsageMixin,
     VoiceMixin,
     ToolboxMixin,
+    CommentWatchMixin,
     MemoryMixin,
     MasterMixin,
     ProactiveMixin,
@@ -287,6 +289,7 @@ class DafeiyuSuitePlugin(
         self.setup_usage()
         self.setup_voice()
         self.setup_toolbox()
+        self.setup_comment_watch()
         self.setup_memory()
         self.setup_master()
         self.setup_proactive()
@@ -305,6 +308,7 @@ class DafeiyuSuitePlugin(
     async def initialize(self) -> None:
         await self._usage_start()
         await self._proactive_start()
+        await self._cw_start()
 
     async def terminate(self) -> None:
         try:
@@ -315,6 +319,10 @@ class DafeiyuSuitePlugin(
             await self._proactive_stop()
         except Exception as exc:
             logger.warning(f"[suite] 停止主动搭话任务失败: {exc}")
+        try:
+            await self._cw_stop()
+        except Exception as exc:
+            logger.warning(f"[suite] 停止评论监控任务失败: {exc}")
         try:
             await self._toolbox_terminate()
         except Exception as exc:

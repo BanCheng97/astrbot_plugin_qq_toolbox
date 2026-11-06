@@ -125,6 +125,42 @@ def extract_cookies(resp) -> str:
     return ""
 
 
+def _extract_callback_json(text: str) -> str | None:
+    """定位 JSONP 回调 ``callback({...})`` 并用括号配对抽出其中的 JSON 文本。
+
+    Qzone 部分接口（如评论 ``emotion_cgi_re_feeds`` 用 ``format=fs``）会把 JSON 包在
+    ``<html><script>...frameElement.callback({...})...</script></html>`` 里返回，
+    前面还带着 ``var/try/catch`` 等 JS。朴素的 ``find('{')`` 会抓到 ``try{`` 的括号，
+    这里专门找 ``callback(`` 后配对的花括号块，能正确跳过字符串里的 ``}``。
+    """
+    match = re.search(r"callback\s*\(\s*\{", text)
+    if not match:
+        return None
+    start = match.end() - 1  # 指向 '{'
+    depth = 0
+    in_str: str | None = None
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str is not None:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == in_str:
+                in_str = None
+            continue
+        if ch == '"' or ch == "'":
+            in_str = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
 def parse_json(text: str) -> dict:
     """解析 JSONP / 非标准 JSON 响应。"""
     text = (text or "").strip()
@@ -132,10 +168,13 @@ def parse_json(text: str) -> dict:
         raise RuntimeError("空间接口返回内容为空")
     if "data error" in text[:200].lower():
         raise RuntimeError("空间接口返回 data error：登录态或 g_tk 可能失效")
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        raise RuntimeError(f"空间接口返回内容异常：{text[:120]}")
-    payload = text[start:end + 1].replace("undefined", "null")
+    payload = _extract_callback_json(text)
+    if payload is None:
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            raise RuntimeError(f"空间接口返回内容异常：{text[:120]}")
+        payload = text[start:end + 1]
+    payload = payload.replace("undefined", "null")
     try:
         data = json.loads(payload)
     except json.JSONDecodeError:

@@ -927,5 +927,126 @@
         }
       }
     }
+  },
+  "comment_watch": {
+    "description": "评论监控与自动回复",
+    "type": "object",
+    "hint": "后台定时拉取空间新评论，按人格自动回复。数据存在 plugin_data/astrbot_plugin_qq_toolbox/comment_watch.json。首次启用只记录现有评论，之后的新评论才会回。",
+    "items": {
+      "basic": {
+        "description": "开关与频率",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "enabled": {
+            "description": "启用评论监控",
+            "type": "bool",
+            "hint": "关掉后不再定时拉取和回复，已记录的评论保留",
+            "default": false
+          },
+          "poll_minutes": {
+            "description": "轮询间隔（分钟）",
+            "type": "int",
+            "hint": "每隔多久拉一次最近说说的评论；空间有风控，不建议低于 5 分钟",
+            "default": 10
+          },
+          "list_count": {
+            "description": "每次拉几条说说",
+            "type": "int",
+            "hint": "1-20，拉最近的说说看有没有新评论",
+            "default": 10
+          },
+          "reply_max_length": {
+            "description": "自动回复最多多少字",
+            "type": "int",
+            "default": 40
+          },
+          "notify_owner_on_reply": {
+            "description": "回复后通知主人",
+            "type": "bool",
+            "hint": "每自动回一条，就私聊主人一声回了什么",
+            "default": true
+          },
+          "notify_owner_on_fail": {
+            "description": "回复失败时通知主人",
+            "type": "bool",
+            "default": true
+          }
+        }
+      },
+      "filter": {
+        "description": "回复哪些评论",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "reply_anyone": {
+            "description": "回复任何人的评论",
+            "type": "bool",
+            "hint": "打开后所有新评论都回（广告、陌生人也回）；关掉则只回白名单里的 QQ",
+            "default": true
+          },
+          "whitelist_uins": {
+            "description": "白名单 QQ 号（reply_anyone 关闭时生效）",
+            "type": "list",
+            "hint": "只回这些 QQ 的评论，其余只记录不回",
+            "default": []
+          },
+          "skip_self": {
+            "description": "不回自己发的评论",
+            "type": "bool",
+            "default": true
+          }
+        }
+      },
+      "content": {
+        "description": "回复文案与人格",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "use_persona": {
+            "description": "用 AstrBot 当前人格写回复",
+            "type": "bool",
+            "default": true
+          },
+          "persona_prompt": {
+            "description": "自定义人格提示词（可选）",
+            "type": "string",
+            "hint": "填了优先用它，不再读 AstrBot 人格",
+            "default": ""
+          },
+          "provider_id": {
+            "description": "用哪个模型写（可选）",
+            "type": "string",
+            "hint": "留空用主人会话当前的对话模型",
+            "default": "",
+            "_special": "select_provider"
+          },
+          "fallback_text": {
+            "description": "模型不可用时的兜底回复",
+            "type": "string",
+            "hint": "留空则模型失败时跳过该评论不回",
+            "default": ""
+          }
+        }
+      },
+      "timing": {
+        "description": "安静时段",
+        "type": "object",
+        "hint": "",
+        "items": {
+          "quiet_start": {
+            "description": "安静时段开始（小时，0-23）",
+            "type": "int",
+            "hint": "和结束相同表示不设安静时段；支持跨零点，如 23 到 7",
+            "default": 0
+          },
+          "quiet_end": {
+            "description": "安静时段结束（小时，0-23）",
+            "type": "int",
+            "default": 0
+          }
+        }
+      }
+    }
   }
 }
