@@ -184,15 +184,45 @@ class ToolboxMixin(SuiteBase):
         return False
 
     def _is_aiocqhttp(self, event: AstrMessageEvent) -> bool:
+        """判断是否为 OneBot（aiocqhttp / NapCat / LLOneBot）平台。
+
+        先用事件自带的平台名判断；拿不到或名字写法不同时，退化为能力
+        检测——只要平台管理器里存在支持 ``call_action`` 的客户端就放行。
+        真正缺 QQ 空间 cookie 会在 ``_load_session`` 给出明确错误，不会
+        因平台名写法不同而误判“用不了”。
+        """
         try:
-            return event.get_platform_name() == "aiocqhttp"
+            name = str(event.get_platform_name() or "")
         except Exception:
-            return False
+            name = ""
+        if name and "aiocqhttp" in name.lower():
+            return True
+        return self.platform_client() is not None
+
+    def _platform_diag(self, event: AstrMessageEvent) -> str:
+        """平台检测失败时的诊断信息，便于定位 get_platform_name 实际返回值。"""
+        parts: list[str] = []
+        try:
+            parts.append(f"event.platform={event.get_platform_name()!r}")
+        except Exception as exc:
+            parts.append(f"event.platform=<err:{exc}>")
+        names: list[str] = []
+        try:
+            for inst in self.context.platform_manager.platform_insts:
+                nm = getattr(inst, "name", "") or getattr(inst, "platform_name", "")
+                if nm:
+                    names.append(str(nm))
+        except Exception:
+            pass
+        parts.append(f"platforms={names}")
+        parts.append(f"onebot_client={'yes' if self.platform_client() else 'no'}")
+        return ", ".join(parts)
 
     def _guard(self, event: AstrMessageEvent) -> str | None:
         if not self._toolbox_cfg("enabled", True):
             return "QQ 助手已关闭，去控制台「QQ 助手」页签打开总开关再用"
         if not self._is_aiocqhttp(event):
+            logger.warning(f"[qq_toolbox] 平台检测未通过（指令）：{self._platform_diag(event)}")
             return "该插件仅支持 aiocqhttp 适配器（NapCat / LLOneBot）"
         if not self._toolbox_cfg("admin_only", True):
             return None
@@ -1012,6 +1042,7 @@ class ToolboxMixin(SuiteBase):
         if not self._toolbox_cfg("enabled", True):
             return "QQ 助手整个关着。用你的口吻跟主人说一句现在操作不了 QQ，别提设置。"
         if not self._is_aiocqhttp(event):
+            logger.warning(f"[qq_toolbox] 平台检测未通过（工具）：{self._platform_diag(event)}")
             return "现在这个平台用不了 QQ 空间。用你的口吻跟主人说一句。"
         if self._toolbox_is_owner(event):
             return None
